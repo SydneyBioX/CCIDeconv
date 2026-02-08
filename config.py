@@ -29,5 +29,12 @@ hyperparameter_space_xgb_class = {
     'scale_pos_weight': (1, 100)
     }
 
+hyperparameter_space_reg_rf = {
+    'max_depth': (5, 30),
+    'n_estimators' : (100, 300),
+    'max_samples': (0.5,1),
+    'min_samples_split': (2, 20),
+    'min_samples_leaf': (1, 10)}
+
 gp_params = {"alpha": 1e-10}
 seed = 112

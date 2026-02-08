@@ -35,6 +35,11 @@ knitr::opts_knit$set(root.dir = here::here())
 source("bin/functions.R")
 library(scRNAseq)
 library(data.table)
+library(CellChat)
+library(scran)
+library(scuttle)
+library(SingleCellExperiment)
+library(tidyverse)
 ```
 
 #### Loading the input paths and gene panels
@@ -181,5 +186,62 @@ setnames(df, old = "Main location", new = "receptor.location_hpa")
 # remove non significant interactions
 train_data = train_data[cell_pval<0.05,]
 fwrite(train_data, "data/raw_data.csv")
+
+```
+
+**Single Cell Data Processing**
+
+```{r}
+
+# processing 
+sce <- fetchDataset("zilionis-lung-2019", "2023-12-20", path = "human")
+# subset to include only patient 6
+sce = sce[,sce$Patient %in% c("p6")]
+sce = sce[,sce$disease == "lung cancer"]
+sce = sce[,sce$donor_id == "QianLUAD_LC_5"]
+sce = scuttle::logNormCounts(sce)
+sce$cell_type = factor(sce$cell_type, levels = unique(sce$cell_type))
+
+# perform cellchat
+data.input <- SingleCellExperiment::logcounts(sce)
+meta <- as.data.frame(SingleCellExperiment::colData(sce)) # extract a dataframe of the cell labels
+cellchat <- createCellChat(object = data.input, meta = meta, group.by = "cell_type",
+                             datatype = "RNA")
+CellChatDB <- CellChatDB.human
+cellChatDB.use <- CellChatDB
+cellchat@DB <- cellChatDB.use
+cellchat <- subsetData(cellchat)
+cellchat <- identifyOverExpressedGenes(cellchat, do.DE = FALSE, min.cells = 10)
+# options(future.globals.maxSize = 250 * 1024^3)
+cellchat <- identifyOverExpressedInteractions(cellchat)
+cellchat <- computeCommunProb(cellchat, type = "triMean", nboot = 20)
+cellchat <- filterCommunication(cellchat, min.cells = 10)
+# save the cell chat object 
+saveRDS(cellchat, "data/processed/single_cell/cellchat_singlecell.rds")
+
+# extract the ligand receptor pairs
+net_arr <- cellchat@net[["prob"]]
+df <- as.data.frame(as.table(net_arr))
+names(df) <- c("source", "target", "interaction_name", 'cell_score')
+pval_df <- as.data.frame(as.table(cellchat@net[["pval"]]))
+names(pval_df) <- c("source", "target", "interaction_name", 'cell_pval')
+df <- merge(df, pval_df, by = intersect(colnames(df), colnames(pval_df)))
+LRsig <- cellchat@LR$LRsig
+LRsig_sub <- LRsig[, c(
+    "pathway_name", "annotation", "is_neurotransmitter","interaction_name", "ligand", "ligand.location","ligand.family", "ligand.keyword", "ligand.secreted_type","ligand.transmembrane","receptor", "receptor.family", "receptor.keyword", "receptor.surfaceome_main", "receptor.surfaceome_sub", "receptor.adhesome", "receptor.secreted_type", "receptor.location","receptor.transmembrane"
+  )]
+df <- merge(df, LRsig_sub, by = "interaction_name")
+# add information from HPA database downloaded from https://www.proteinatlas.org/humanproteome/subcellular/data#locations 
+hpa_data = fread("data/subcellular_location.tsv")
+df <- merge(df, hpa_data[, .(`Gene name`, `Main location`)], 
+            by.x = "ligand", by.y = "Gene name", 
+            all.x = TRUE)
+setnames(df, old = "Main location", new = "ligand.location_hpa")
+df <- merge(df, hpa_data[, .(`Gene name`, `Main location`)], 
+            by.x = "receptor", by.y = "Gene name", 
+            all.x = TRUE)
+setnames(df, old = "Main location", new = "receptor.location_hpa"
+df = df[cell_pval<0.05,]
+write_csv(df,'data/test_data/raw_single_cell.csv')
 
 ```

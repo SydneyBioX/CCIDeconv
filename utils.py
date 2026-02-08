@@ -1,12 +1,11 @@
 # utils.py
 import itertools
-from matplotlib import cm
 import numpy as np
 import pandas as pd
 from sklearn.preprocessing import StandardScaler as sc
 from sklearn.metrics import classification_report, fbeta_score, f1_score, roc_curve, auc, make_scorer, r2_score, mean_squared_error
 import xgboost as xgb
-from sklearn.ensemble import RandomForestClassifier
+from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
 from sklearn.model_selection import cross_val_score, KFold
 from bayes_opt import BayesianOptimization
 from scipy.stats import gmean
@@ -77,52 +76,6 @@ def process_test_data(df):
     ids = df[['lr_pair', 'source', 'target']]
     return X_scaled_test, ids
 
-def process_singlecell(df):
-    conditions = [
-    (df['cyt_score'] == 0) & 
-    (df['nuc_score'] == 0), # detected in cell alone
-    (df['cyt_score'] > 0) & 
-    (df['nuc_score'] > 0), # detected in both cytoplasm and nucleus + cell
-    (df['cyt_score'] > 0) & 
-    (df['nuc_score'] == 0), # detected in cytoplasm + cell alone
-    (df['nuc_score'] > 0) & 
-    (df['cyt_score'] == 0), # detected in nucleus + cell alone
-    ]
-    labels = [0,1,1,1]
-    df['labels'] = np.select(conditions, labels, default=4)
-    df = df[df['labels'] != 4] # remove the non significant interactions if any
-
-    # columns to remove from the x_matric
-    exclude_columns = ['cell_pspatial',
-        'cyt_pval', 'cyt_pspatial', 'cyt_score', 'sample',
-        'cell_pval', 'cell_score', 'tissue', 'is_neurotransmitter',
-        'ligand_location_cellchat', 'receptor_location_cellchat',
-        'ligand_location_hpa', 'receptor_location_hpa',
-        'nuc_pval', 'nuc_pspatial', 'nuc_score', 'ligand', 'receptor', 
-    ]
-    X = df.drop(columns=exclude_columns)
-    groups = df['sample'].values
-    cont_cols = ['cell_P1', 'nuc_P1', 'cyt_P1']
-    X_scaled = scale_continuous_by_group(X, groups, cont_cols) # scaling the continuous columns
-    y_nuc = X_scaled[['nuc_P1']]
-    y_cyt = X_scaled[['cyt_P1']]
-
-    # Catboost encoding
-    catboost_encoder = CatBoostEncoder()
-    categorical_columns = ['lr_pair', 'source', 'target',
-        'pathway_name', 'annotation',
-        'ligand.family', 'ligand.keyword', 'ligand.secreted_type',
-        'ligand.transmembrane', 'receptor.family',
-        'receptor.keyword', 'receptor.surfaceome_main',
-        'receptor.surfaceome_sub', 'receptor.adhesome',
-        'receptor.secreted_type', 'receptor.transmembrane']
-    labels = ['labels']
-    # catboost_encoded = catboost_encoder.fit_transform(X_scaled[categorical_columns], X[labels])
-    # X_scaled = X_scaled.drop(categorical_columns, axis = 1)
-    # X_scaled = pd.concat([X_scaled.reset_index(drop= True), catboost_encoded.reset_index(drop = True)], axis = 1)
-    y = df['labels']
-    X_scaled = X_scaled.drop(columns=['cyt_P1', 'nuc_P1']) # remove the labels column from the x matrix
-    ids = df[['lr_pair', 'source', 'target']]
 
 # random forest model optimization
 def rf_cv(max_samples,n_estimators,max_features, max_depth, min_samples_split, min_samples_leaf, X_train, y_train):
@@ -174,6 +127,25 @@ def xgb_reg(max_depth, learning_rate, n_estimators, reg_alpha, colsample_bytree,
         n_jobs=-1
     )
     # Fit the estimator
+    cv = KFold(n_splits=3, shuffle=True, random_state=112)
+    scores = cross_val_score(estimator_function, X_train_reg, y_train_reg, cv=cv,
+                             scoring=make_scorer(r2_score))
+    return scores.mean()
+
+def rf_reg(max_depth, n_estimators,  max_samples, min_samples_leaf, min_samples_split, X_train_reg, y_train_reg):
+    max_depth = int(max_depth)
+    n_estimators = int(n_estimators)
+    max_samples = max_samples
+    estimator_function = RandomForestRegressor(
+        max_depth=max_depth,
+        n_estimators=n_estimators,
+        max_samples= max_samples,
+        min_samples_leaf = int(min_samples_leaf),
+        min_samples_split = int(min_samples_split),
+        random_state=112
+        )
+    # Fit the estimator
+    estimator_function.fit(X_train_reg,y_train_reg)
     cv = KFold(n_splits=3, shuffle=True, random_state=112)
     scores = cross_val_score(estimator_function, X_train_reg, y_train_reg, cv=cv,
                              scoring=make_scorer(r2_score))
@@ -237,15 +209,21 @@ def group_generator(df):
 def extract_metrics(results_classifier, results_regression, model_name):
        auc = [results_classifier[group]['classification_metrics']['roc_auc']
               for group in results_classifier.keys()]
-       recall = [results_classifier[group]['classification_metrics']['class_report']
+       reports = [results_classifier[group]['classification_metrics']['class_report']
               for group in results_classifier.keys()]
        macro_recalls = []
-       for report in recall:
+       macro_precisions = []
+       macro_f1s = []
+       for report in reports:
               for line in report.splitlines():
                      if line.strip().startswith("macro avg"):
                      # Split the line into parts and take the second number (recall)
+                            macro_precision = float(line.split()[2])
                             macro_recall = float(line.split()[3])
+                            macro_f1 = float(line.split()[4])
+                            macro_precisions.append(macro_precision)
                             macro_recalls.append(macro_recall)
+                            macro_f1s.append(macro_f1)
        cyt_R2 = [results_regression[group]['cyt'][0]['R²']
               for group in results_regression.keys()]
        nuc_R2 = [results_regression[group]['nuc'][0]['R²']
@@ -253,6 +231,10 @@ def extract_metrics(results_classifier, results_regression, model_name):
        cyt_NRMSE = [results_regression[group]['cyt'][0]['NRMSE']
                      for group in results_regression.keys()]
        nuc_NRMSE = [results_regression[group]['nuc'][0]['NRMSE']
+                     for group in results_regression.keys()]
+       cyt_RMSE = [results_regression[group]['cyt'][0]['RMSE']
+                     for group in results_regression.keys()]
+       nuc_RMSE = [results_regression[group]['nuc'][0]['RMSE']
                      for group in results_regression.keys()]
        
        composite_metric = [
@@ -271,11 +253,15 @@ def extract_metrics(results_classifier, results_regression, model_name):
        "Dataset": results_classifier.keys(),
        "model" : model_name,
        "AUC": auc,
+       "macro_precision": macro_precisions,
        "macro_recall": macro_recalls,
+       "macro_f1": macro_f1s,
        "cyt_R2": cyt_R2,
        "nuc_R2": nuc_R2,
        "cyt_NRMSE": cyt_NRMSE,
        "nuc_NRMSE": nuc_NRMSE,
+       "cyt_RMSE": cyt_RMSE,
+       'nuc_RMSE': nuc_RMSE,
        "composite_metric": composite_metric
        })
        return metrics

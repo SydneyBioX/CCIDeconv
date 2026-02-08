@@ -82,3 +82,7 @@ data.to_csv('data/training_data/df_modelC.csv', index = False)
 # Model D: OHE the location features, and load the data to the model. (final model)
 ohe_sep_df = ohe_location(data, separated = True)
 ohe_sep_df.to_csv('data/training_data/training_data.csv', index = False)
+# Single cell
+single_cell_test = pd.read_csv("data/test_data/raw_single_cell.csv")
+ohe_sep_df = ohe_location(single_cell_test, separated = True)
+ohe_sep_df.to_csv('data/test_data/single_cell_test.csv', index = False)

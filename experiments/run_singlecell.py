@@ -14,7 +14,7 @@ from utils import process_data, rf_cv, cast_params, xgbc_cv, xgb_reg, process_te
 from config import hyperparameter_space_rf_class, hyperparameter_space_xgb_class, hyperparameter_space_reg, gp_params, seed
 from train import train_classifier, train_regressor 
 from inference import HierarchicalClassifier, HierarchicalRegressor 
-from random import random
+import random
 
 random.seed(42)
 def main(args):
@@ -28,15 +28,20 @@ def main(args):
     
     # process the test data
     test_df = pd.read_csv(args.test_data_path)
-    X_test, y_test, test_ids = process_test_data(test_df) # ensure the test data is processed correctly 
+    X_test, test_ids = process_test_data(test_df) # ensure the test data is processed correctly 
     
+    # match the columns in train and text correctly 
+    common_cols = X_train.columns.intersection(X_test.columns)
+    # subset both
+    X_train = X_train[common_cols]
+    X_test = X_test[common_cols]
     # --- Encode categorical columns ---
     cat_train = catboost_encoder.fit_transform(X_train[categorical_columns], y_train)
     X_train = pd.concat([X_train.drop(columns=categorical_columns).reset_index(drop=True), cat_train.reset_index(drop=True)], axis=1)
     
     cat_test = catboost_encoder.transform(X_test[categorical_columns])
     X_test = pd.concat([X_test.drop(columns=categorical_columns).reset_index(drop=True), cat_test.reset_index(drop=True)], axis=1)
-    
+    print(X_test.head())
     # convert to numpy
     X_train = X_train.to_numpy(dtype=float)
     X_test = X_test.to_numpy(dtype=float)
@@ -48,7 +53,7 @@ def main(args):
             random_state=seed,
             verbose=0
         )
-    xgbcBO.maximize(init_points=3,n_iter=30)
+    xgbcBO.maximize(init_points=1,n_iter=1)
     rf_int_params = ['n_estimators','max_depth','min_samples_split','min_samples_leaf']
     rf_params = cast_params( xgbcBO.max['params'], int_params=rf_int_params)
     xgbcBO = BayesianOptimization(
@@ -58,7 +63,7 @@ def main(args):
         verbose=0
     )
     xgbcBO.set_gp_params(**gp_params)
-    xgbcBO.maximize(init_points=3,n_iter=30)
+    xgbcBO.maximize(init_points=1,n_iter=1)
     xgb_int_params = ['n_estimators', 'max_depth']
     xgb_params = cast_params( xgbcBO.max['params'], int_params=xgb_int_params)
     # fit the classifier with the best parameters
@@ -68,22 +73,23 @@ def main(args):
     mask_train = y_train == 1
     
     xgb_bo = BayesianOptimization(
-    f=lambda **params: xgb_reg(**params, X_train_reg= X_train[mask_train,:], y_train_reg = y_cyt.iloc[train_idx,:].to_numpy()[mask_train]),
+    f=lambda **params: xgb_reg(**params, X_train_reg= X_train[mask_train,:], y_train_reg = y_cyt.to_numpy()[mask_train]),
     pbounds=hyperparameter_space_reg,
     random_state=seed,
     verbose=0
     )
     xgb_bo.set_gp_params(**gp_params)
-    xgb_bo.maximize(init_points=3, n_iter=30)
-    reg_cyt_params = cast_params(xgb_bo.max['params'], int_params=xgb_int_params)   
+    xgb_bo.maximize(init_points=1, n_iter=1)
+    reg_cyt_params = cast_params(xgb_bo.max['params'], int_params=xgb_int_params)  
+    reg_cyt_wrapper = train_regressor(X_train[mask_train,:], y_cyt.to_numpy()[mask_train], reg_cyt_params, X_val = None, y_val = None)
     xgb_bo = BayesianOptimization(
-    f=lambda **params: xgb_reg(**params, X_train_reg= X_train[mask_train,:], y_train_reg = y_nuc.iloc[train_idx,:].to_numpy()[mask_train]),
+    f=lambda **params: xgb_reg(**params, X_train_reg= X_train[mask_train,:], y_train_reg = y_nuc.to_numpy()[mask_train]),
     pbounds=hyperparameter_space_reg,
     random_state=seed,
     verbose=0
     )
     xgb_bo.set_gp_params(**gp_params)
-    xgb_bo.maximize(init_points=3, n_iter=30)
+    xgb_bo.maximize(init_points=1, n_iter=1)
     reg_nuc_params = cast_params(xgb_bo.max['params'], int_params=xgb_int_params) 
     reg_nuc_wrapper = train_regressor(X_train[mask_train,:], y_nuc.to_numpy()[mask_train], reg_nuc_params, X_val = None, y_val = None)
     # get the predicted values for the test set
@@ -107,8 +113,8 @@ if __name__ == "__main__":
     main(args)
     
 # example command to run:
-# python experiments/run_logo.py \
+# python experiments/run_singlecell.py \
 #     --data_path data/training_data/training_data.csv \
 #     --categorical_columns lr_pair,source,target,pathway_name,annotation,ligand.family,ligand.keyword,ligand.secreted_type,ligand.transmembrane,receptor.family,receptor.keyword,receptor.surfaceome_main,receptor.surfaceome_sub,receptor.adhesome,receptor.secreted_type,receptor.transmembrane \
-#     --exclude_columns cyt_pval,cyt_pspatial,cyt_P1,sample,cell_pval,cell_P1,tissue,is_neurotransmitter,ligand_location_cellchat,receptor_location_cellchat,ligand_location_hpa,receptor_location_hpa,nuc_pval,nuc_pspatial,nuc_P1,ligand,receptor,labels
-#     --test_data_path data/training_data/singlecell_test_data.csv
+#     --exclude_columns cyt_pval,cyt_pspatial,cyt_score,sample,cell_pval,cell_pspatial,cell_score,tissue,is_neurotransmitter,ligand_location_cellchat,receptor_location_cellchat,ligand_location_hpa,receptor_location_hpa,nuc_pval,nuc_pspatial,nuc_score,ligand,receptor,labels\
+#     --test_data_path data/test_data/single_cell_test.csv
