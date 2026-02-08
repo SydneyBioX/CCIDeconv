@@ -1,2 +1,1 @@
-# CCIDeconv
-Subcellular CCI Deconvolution 
+# Subcellular CCI Deconvolution 
