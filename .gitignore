@@ -4,3 +4,4 @@
 .Ruserdata
 data
 .joblib
+__pycache__
