@@ -21,6 +21,7 @@ random.seed(42)
 def main(args):
     df = pd.read_csv(args.data_path)
     X_scaled, y, y_nuc, y_cyt, ids = process_data(df, exclude_columns=args.exclude_columns.split(','), spatial = args.spatial)
+    print(X_scaled.shape)
     categorical_columns = args.categorical_columns.split(',')
     groups = df[args.group_column].values
     catboost_encoder = CatBoostEncoder()
@@ -138,4 +139,4 @@ if __name__ == "__main__":
 #     --data_path data/training_data/training_data.csv \
 #     --categorical_columns lr_pair,source,target,pathway_name,annotation,ligand.family,ligand.keyword,ligand.secreted_type,ligand.transmembrane,receptor.family,receptor.keyword,receptor.surfaceome_main,receptor.surfaceome_sub,receptor.adhesome,receptor.secreted_type,receptor.transmembrane \
 #     --group_column sample
-#     --exclude_columns cyt_pval,cyt_pspatial,cyt_P1,sample,cell_pval,cell_P1,tissue,is_neurotransmitter,ligand_location_cellchat,receptor_location_cellchat,ligand_location_hpa,receptor_location_hpa,nuc_pval,nuc_pspatial,nuc_P1,ligand,receptor,labels
+#     --exclude_columns cyt_pval,cyt_pspatial,cyt_score,sample,cell_pval,cell_pspatial,cell_score,tissue,is_neurotransmitter,ligand_location_cellchat,receptor_location_cellchat,ligand_location_hpa,receptor_location_hpa,nuc_pval,nuc_pspatial,nuc_score,ligand,receptor,labels

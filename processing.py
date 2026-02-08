@@ -17,6 +17,7 @@ def encoding_location_total(df):
     df[['ligand_location_hpa', 'receptor_location_hpa']] = df['ligand_location_hpa_receptor_location_hpa'].str.split('_', n=1, expand=True)
     df['ligand_location_hpa'] = df['ligand_location_hpa'].str.strip()
     df['receptor_location_hpa'] = df['receptor_location_hpa'].str.strip()
+    df.drop(columns = ["ligand.location_receptor.location", "ligand_location_hpa_receptor_location_hpa"], inplace=True)
 
     return df # call process_df from utils.py for encoding the categorical variables and scaling the numerical variables
 
@@ -59,7 +60,6 @@ def ohe_location(df, separated = True):
             [df, ligand_dummies, receptor_dummies, ligand_dummies_hpa, receptor_dummies_hpa],
             axis=1
         )
-        df = df.drop(['ligand_location_hpa_receptor_location_hpa', 'ligand.location_receptor.location'], axis=1)
     else:
         # one-hot encode the location columns for both cellchat and hpa
         encoded_columns = ['ligand_location_cellchat','receptor_location_cellchat', 'ligand_location_hpa', 'receptor_location_hpa']
