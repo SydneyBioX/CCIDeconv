@@ -1,0 +1,1147 @@
+---
+title: "Figure 4"
+author: "rshreej"
+date: "`r format(Sys.time(), '%B %d, %Y')`"
+format: 
+  html:
+    toc: true
+    toc-depth: 2
+    toc-expand: true
+    number-sections: true
+    theme: united
+    highlight: tango
+    code-fold: true
+    code-tools: true
+    embed-resources: true
+editor: 
+  markdown: 
+    wrap: 72
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r}
+knitr::opts_knit$set(root.dir = here::here())
+```
+
+```{r}
+#| message: false
+#| include: false
+#| warning: false
+library(data.table)
+library(circlize)
+library(ggvenn)
+library(ggridges)
+library(cowplot)
+library(pheatmap)
+library(cowplot)
+library(ComplexHeatmap)
+library(fgsea)
+library(msigdbr)
+library(ggpubr)
+library(clusterProfiler)
+library(enrichplot) 
+library(patchwork)
+library(ggbiplot)
+library(gridGraphics)
+library(gridExtra)
+library(igraph)
+library(RColorBrewer)
+library(pheatmap)
+library(ggvenn)
+library(cowplot)
+library(ggVennDiagram)
+library(magick)
+library(ragg)
+library(tidyr)
+library(dplyr)
+```
+# Training a hierarchical model involving a classifier and regressor to predict the communication scores of the subcellular regions of the cell
+
+```{r}
+#| message: false
+#| include: true
+#| warning: false
+theme_set(
+  theme_classic(base_size = 14) +
+    theme(
+      axis.text = element_text(size = 12),
+      axis.title = element_text(size = 12, face = "bold"),
+      legend.text = element_text(size = 12),
+      legend.title = element_text(size = 12, face = "bold"),
+      plot.title = element_text(size = 12, face = "bold", hjust = 0.5)
+    )
+)
+```
+
+## S2: Upset plots of the LR communicating between each of the regions
+```{r}
+#| message: false
+#| include: true
+#| warning: false
+data <- fread("data/processed/training_data_071025.csv")
+data$unique_id = paste0(data$lr_pair, "_", data$source, "_", data$target)
+venn_data = list()
+plot_list = list()
+for (i in unique(data$sample)){
+  subset = data[sample == i,]
+  data_list = list(
+    `WC-->WC` = as.vector(subset[cell_pval <0.05 & cell_score >0,unique_id]),
+    `C-->C` = as.vector(subset[cyt_pval <0.05 & cyt_score > 0,unique_id]),
+    `N-->N` = as.vector(subset[nuc_pval <0.05& nuc_score > 0,unique_id])
+  )
+  venn_data[[i]] = data_list
+}
+
+
+files = list.files('data/processed/cyt_to_nuc')
+cyt_to_nuc = list()
+nuc_to_cyt = list()
+for (i in files){
+  filename = gsub(".rds", "", i)
+  obj = readRDS(file.path('data/processed/cyt_to_nuc', i))
+  scores <- as.data.frame(as.table(obj[["Prob_P2_P3_P4"]]))
+  pval <- as.data.frame(as.table(obj[["PvalP2_P3_P4"]]))
+  colnames(scores) = c("source", "target", "lr_pair", "score")
+  colnames(pval) = c("source", "target", "lr_pair", "pval")
+  df = setDT(inner_join(scores, pval, by = intersect(colnames(scores), colnames(pval))))
+  df$unique_id = paste0(df$lr_pair, "_", df$source, "_", df$target)
+  cyt_to_nuc[[filename]] = df[pval<0.05,unique_id]
+  obj = readRDS(file.path('data/processed/nuc_to_cyt', i))
+  scores <- as.data.frame(as.table(obj[["Prob_P2_P3_P4"]]))
+  pval <- as.data.frame(as.table(obj[["PvalP2_P3_P4"]]))
+  colnames(scores) = c("source", "target", "lr_pair", "score")
+  colnames(pval) = c("source", "target", "lr_pair", "pval")
+  df = setDT(inner_join(scores, pval, by = intersect(colnames(scores), colnames(pval))))
+  df$unique_id = paste0(df$lr_pair, "_", df$source, "_", df$target)
+  nuc_to_cyt[[filename]] = df[pval<0.05,unique_id]
+}
+
+# add cyt-nuc to the venn data
+for (i in names(venn_data)){
+  venn_data[[i]][['C-->N']] = cyt_to_nuc[[i]]
+  venn_data[[i]][['N-->C']] = nuc_to_cyt[[i]]
+}
+
+names(venn_data) = c("Brain (AD)",
+             "Brain (GL)",
+             "Breast Cancer",
+             "Lung",
+             "Lung (High-Res)",
+             "Lymph Node",
+             "Ovarian",
+             "Pancreas",
+             "Skin")
+upset_plots = list()
+interactions = c(10, 11, 4, 17, 21, 15, 8, 7, 16)
+save_dir = "data/results/Final_Figures/Supplementary_figures/upset_plots"
+for (i in 1:length(names(venn_data))){
+  filename = file.path(save_dir, paste0(names(venn_data)[[i]], ".pdf"))
+  pdf(filename)
+  list = venn_data[[names(venn_data)[i]]]
+  venn = Venn(list)
+  p = plot_upset(venn, min_size = 1, nintersects = interactions[i], 
+                 top.bar.color = "#3C3B6E", 
+                 sets.bar.color = "#B22234",
+                 intersection.matrix.color = "darkgreen",
+                 top.bar.numbers.size = 6,
+                 relative_height = 4,
+                 relative_width = 0.4
+                 )
+  
+  p[["plotlist"]][[2]] = p[["plotlist"]][[2]] + ggtitle(names(venn_data)[i]) +
+    theme(
+      plot.title = element_text(size = 16, face = "bold"),
+      axis.text = element_text(size = 16),
+      axis.title = element_text(size = 16),
+      strip.text = element_text(size = 16)
+    )
+  p[["plotlist"]][[3]] = p[["plotlist"]][[3]] + theme(
+      plot.title = element_text(size = 16, face = "bold"),
+      axis.text = element_text(size = 16, angle = 45),
+      axis.title = element_text(size = 16),
+      strip.text = element_text(size = 16)
+    )
+  
+  p[["plotlist"]][[1]] = p[["plotlist"]][[1]] + theme(
+      plot.title = element_text(size = 16, face = "bold"),
+      axis.text = element_text(size = 20),
+      axis.title = element_text(size = 16),
+      strip.text = element_text(size = 16)
+    )
+  
+  print(p)
+  dev.off()
+}
+
+```
+
+## S3. Distribution of communication scores in each dataset across the regions 
+```{r}
+#| message: false
+#| include: true
+#| warning: false
+data = fread("data/processed/training_data_071025.csv")
+box_data <- data[(nuc_pval < 0.05) | (cyt_pval < 0.05) | (cell_pval < 0.05), .(cell_score, cell_P1, cyt_score, cyt_P1, nuc_score, nuc_P1, sample)]
+box_data <- box_data %>%
+  mutate(compartment = case_when(
+    cyt_score > 0 & nuc_score > 0 & cell_score > 0 ~ "cell+cyt+nuc",
+    cyt_score == 0 & nuc_score == 0 & cell_score > 0 ~ "cell",
+    cyt_score > 0 & nuc_score > 0 & cell_score == 0 ~ "cyt+nuc",
+    cyt_score == 0 & nuc_score > 0 & cell_score > 0 ~ "cell+nuc",
+    cyt_score == 0 & nuc_score > 0 & cell_score == 0 ~ "nuc",
+    cyt_score > 0 & nuc_score == 0 & cell_score == 0 ~ "cyt",
+    cyt_score > 0 & nuc_score == 0 & cell_score > 0 ~ "cell+cyt",
+    TRUE ~ "none"   # fallback in case none of the conditions match
+  ))
+box_data$sample = factor(box_data$sample, unique(box_data$sample), 
+                         labels = c("Brain (AD)",
+             "Brain (GL)",
+             "Breast Cancer",
+             "Lung",
+             "Lung (High-Res)",
+             "Lymph Node",
+             "Ovarian",
+             "Pancreas",
+             "Skin"))
+colnames(box_data) = c('cell', 'cell_P1', 'cytoplasm', 'cyt_P1', 'nucleus', 'nuc_P1', 'sample', 'compartment')
+cell_cyt_data <- box_data[compartment == "cell+cyt"]
+cell_nuc_data <- box_data[compartment == "cell+nuc"]
+cell_cyt_nuc_data <- box_data[compartment == "cell+cyt+nuc"]
+
+cell_cyt_long <- melt(cell_cyt_data[,.(cell, cytoplasm, sample)],measure.vars = c("cell", "cytoplasm"),variable.name = "Compartment",value.name = "Score")
+cell_nuc_long <- melt(cell_nuc_data[,.(cell, nucleus, sample)],measure.vars = c("cell", "nucleus"),variable.name = "Compartment",value.name = "Score")
+cell_cyt_nuc_long <- melt(cell_cyt_nuc_data[,.(cell, cytoplasm, nucleus, sample)],measure.vars = c("cell", "cytoplasm", "nucleus"),variable.name = "Compartment",value.name = "Score")
+setDT(cell_cyt_long)
+setDT(cell_nuc_long)
+setDT(cell_cyt_nuc_long)
+cell_cyt_long[, log_Score := log10(Score + 1e-10)] 
+cell_nuc_long[, log_Score := log10(Score + 1e-10)] 
+cell_cyt_nuc_long[, log_Score := log10(Score + 1e-10)] 
+
+plotdir = "data/results/Final_Figures/Supplementary_figures/compare_ditributions/"
+ggboxplot(
+  cell_cyt_long, 
+  x = "Compartment", 
+  y = "log_Score",
+  color = "Compartment", 
+  palette = c("#b089c0", "#97c9c8"),  # colorblind-friendly
+  add = "jitter", 
+  add.params = list(alpha = 1, size = 0.5)
+) +
+  facet_wrap(~ sample, ncol = 3) +
+  stat_compare_means(
+    comparisons = list(
+      c("cell", "cytoplasm")
+    ),
+    method = "wilcox.test",
+    size = 4
+  ) +
+  labs(
+    y = expression(log[10]~"Communication scores"),
+    x = NULL
+  ) +
+  theme_minimal(base_size = 14) +
+  theme(
+    panel.grid = element_blank(),
+    panel.border = element_rect(color = "black", fill = NA, size = 1), # box around each facet
+    strip.background = element_blank(),
+    strip.text = element_text(size = 12, face = "bold"),
+    axis.text.x = element_text(size = 12, angle = 30, hjust = 1),
+    axis.text.y = element_text(size = 12),
+    legend.position = "none"
+  )
+ggsave(file.path(plotdir, 'cellvscyt.pdf'), height = 11)
+
+ggboxplot(
+  cell_nuc_long, 
+  x = "Compartment", 
+  y = "log_Score",
+  color = "Compartment", 
+  palette = c("#b089c0", "#ea9b8e"),  # colorblind-friendly
+  add = "jitter", 
+  add.params = list(alpha = 1, size = 0.5)
+) +
+  facet_wrap(~ sample, ncol = 3) +
+  stat_compare_means(
+    comparisons = list(
+      c("cell", "nucleus")
+    ),
+    method = "wilcox.test",
+    size = 4
+  ) +
+  labs(
+    y = expression(log[10]~"Communication scores"),
+    x = NULL
+  ) +
+  theme_minimal(base_size = 14) +
+  theme(
+    panel.grid = element_blank(),
+    panel.border = element_rect(color = "black", fill = NA, size = 1), # box around each facet
+    strip.background = element_blank(),
+    strip.text = element_text(size = 12, face = "bold"),
+    axis.text.x = element_text(size = 12, angle = 30, hjust = 1),
+    axis.text.y = element_text(size = 12),
+    legend.position = "none"
+  )
+
+ggsave(file.path(plotdir, 'cellvsnuc.pdf'), height = 11)
+
+
+ggboxplot(
+  cell_cyt_nuc_long, 
+  x = "Compartment", 
+  y = "log_Score",
+  color = "black", 
+  fill = "Compartment", 
+  palette = c("#b089c0", "#97c9c8", "#ea9b8e"),  # colorblind-friendly
+  add = "jitter", 
+  add.params = list(alpha = 0.2, size = 0.3, width = 0.1)
+) +
+  facet_wrap(~ sample,ncol = 3) +
+  stat_compare_means(
+    comparisons = list(
+      c("cell", "cytoplasm"),
+      c("cell", "nucleus"),
+      c("cytoplasm", "nucleus")
+    ),
+    method = "wilcox.test",
+    size = 4
+  ) +
+  labs(
+    y = expression(log[10]~"Communication scores"),
+    x = NULL
+  ) +
+  theme_minimal(base_size = 14) +
+  theme(
+    panel.grid = element_blank(),
+    panel.border = element_rect(color = "lightgray", fill = NA, size = 1), # box around each facet
+    strip.background = element_blank(),
+    strip.text = element_text(size = 12, face = "bold"),
+    axis.text.x = element_text(size = 12, angle = 45, hjust = 1),
+    axis.text.y = element_text(size = 12),
+    legend.position = "none"
+  )
+ggsave(file.path(plotdir, 'cellvscytvsnuc.pdf'), height = 15)
+```
+
+## S4. Performance metrics of the model.
+
+```{r}
+#| message: false
+#| include: true
+#| warning: false
+ddir = "data/processed/plots_metrics"
+xgb_voting = fread(file.path(ddir, "comparison_baselearners/xgboost_voting_metrics.csv"))
+xgb_voting = xgb_voting[, c(1,2:7,11,13,14,17,20)]
+class_metrics = melt(xgb_voting, id.vars = c('Dataset'), measure.vars = 2:12)
+
+class_metrics$variable <- factor(class_metrics$variable,
+  levels = unique(class_metrics$variable),
+  labels = c("F1 (Class 0)", "Precision (Class 0)", "Recall (Class 0)",
+  "F1 (Class 1)", "Precision (Class 1)", "Recall (Class 1)",
+  "Accuracy", "Macro F1", "Macro Precision",
+  "Cytoplasm RMSE", "Nucleus RMSE")
+)
+colors = c("#1f77b4","#3a99d9","#5cb0e0","#7fc7e6","#a3d5eb","#c7e3f0","#fdb462","#fec978","#fee0a3","#9467bd","#b087d0")
+ggplot(class_metrics, aes(x = variable, y = value)) +
+  geom_violin(width = 1, aes(fill = variable)) +
+  geom_jitter(width = 0.1) + 
+  scale_fill_manual(values = colors) + 
+  geom_boxplot(color = "black", fill = "white", width = 0.05) +
+  theme_classic(base_size = 20) + 
+  theme(
+    axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1),
+    legend.position = ""
+    ) +
+  labs( x = "", y = "Value")
+ggsave("data/results/Final_Figures/Supplementary_figures/best_model_metrics/class_metrics.pdf", width = 12)
+
+```
+
+
+## S5. Classification and regression  metrics of the different base learners.
+```{r}
+#| message: false
+#| include: true
+#| warning: false
+ddir = "data/processed/plots_metrics"
+xgb = fread(file.path(ddir, "comparison_baselearners/xgboost_metrics.csv"))
+rf = fread(file.path(ddir, "comparison_baselearners/rf_metrics.csv"))
+xgb_rf = fread(file.path(ddir, "comparison_baselearners/xgboost_rf_metrics.csv"))
+xgb_voting = fread(file.path(ddir, "comparison_baselearners/xgboost_voting_metrics.csv"))
+
+xgb = xgb[, model:= "xgb"]
+rf = rf[, model:= "rf"]
+xgb_rf = xgb_rf[, model:= "xgb_rf"]
+xgb_voting = xgb_voting[, model:= "xgb_voting"]
+
+dt = rbind(xgb, rf, xgb_rf, xgb_voting)
+
+heatmap_df = melt(dt, id.vars= c('model', 'Dataset'), measure.vars= c(12,15,16,18,19,21)) 
+heatmap_df$variable <- factor(heatmap_df$variable,
+  levels = c("auc","macro_recall","cyt_R²","nuc_R²",
+             # "cyt_RMSE","nuc_RMSE",
+             "cyt_NRMSE","nuc_NRMSE","geometric_mean"),
+  labels = c("AUC",
+             "Recall (Macro)",
+             "R² – Cytoplasm",
+             "R² – Nucleus",
+             # "RMSE – Cytoplasm",
+             # "RMSE – Nucleus",
+             "NRMSE – Cytoplasm",
+             "NRMSE – Nucleus",
+             "Geometric Mean")
+)
+
+heatmap_df$Dataset <- factor(heatmap_df$Dataset,
+  levels = unique(heatmap_df$Dataset),
+  labels = c("Brain (AD)",
+             "Brain (GL)",
+             "Breast Cancer",
+             "Lung",
+             "Lung (High-Res)",
+             "Lymph Node",
+             "Ovarian",
+             "Pancreas",
+             "Skin")
+)
+
+heatmap_df$model <- factor(heatmap_df$model,
+  levels = unique(heatmap_df$model),
+  labels = c("Model 1", "Model 2", "Model 3", "Model 4")
+)
+
+# plot the heatmap
+ggplot(heatmap_df, aes(x = variable, y = Dataset, fill = value)) +
+  geom_tile(color = "black", linewidth = 0.1) + 
+  scale_fill_gradientn (colours = c("white", "#cdedea", "#20b3a5")) + 
+  labs(x = "", y = "Dataset") +
+  theme_minimal(base_size = 13) +
+  theme(
+    axis.text.x = element_text(angle = 90, size = 12, hjust = 1, vjust = 1),
+    panel.grid = element_blank(),
+    legend.position = "right",
+    strip.text = element_text(face = "bold", size = 10, hjust = 0.5),
+axis.text.y = element_text(size = 12)
+  ) +
+  coord_fixed() + 
+  facet_wrap(~model, nrow = 1)
+
+ggsave("data/results/Final_Figures/Supplementary_figures/heatmap_comparisons/heatmap_baselearners.pdf", width = 10)
+```
+
+
+## S6. Classification and regression metrics of models with different feature engineering approaches
+```{r}
+#| message: false
+#| include: true
+#| warning: false
+ddir = "data/processed/plots_metrics"
+a = fread(file.path(ddir, "comparison_features/xgboost_voting_metrics_predictive_features_ohe_not_separated_model2.csv"))
+b = fread(file.path(ddir, "comparison_features/xgboost_voting_metrics_predictive_features_catboost_not_separated_model3.csv"))
+c = fread(file.path(ddir, "comparison_features/xgboost_voting_metrics_predictive_features_combined_model4.csv"))
+d = fread(file.path(ddir, "comparison_features/xgboost_voting_metrics_model1.csv"))
+
+a = a[, model:= "Model A"]
+b = b[, model:= "Model B"]
+c = c[, model:= "Model C"]
+d = d[, model:= "Model D"]
+
+dt = rbind(a, b, c, d)
+
+heatmap_df = melt(dt, id.vars= c('model', 'Dataset'), measure.vars= c(12,15,16,18,19,21)) 
+heatmap_df$variable <- factor(heatmap_df$variable,
+  levels = c("auc","macro_recall","cyt_R²","nuc_R²",
+             # "cyt_RMSE","nuc_RMSE",
+             "cyt_NRMSE","nuc_NRMSE","geometric_mean"),
+  labels = c("AUC",
+             "Recall (Macro)",
+             "R² – Cytoplasm",
+             "R² – Nucleus",
+             # "RMSE – Cytoplasm",
+             # "RMSE – Nucleus",
+             "NRMSE – Cytoplasm",
+             "NRMSE – Nucleus",
+             "Geometric Mean")
+)
+
+heatmap_df$Dataset <- factor(heatmap_df$Dataset,
+  levels = unique(heatmap_df$Dataset),
+  labels = c("Brain (AD)",
+             "Brain (GL)",
+             "Breast Cancer",
+             "Lung",
+             "Lung (High-Res)",
+             "Lymph Node",
+             "Ovarian",
+             "Pancreas",
+             "Skin")
+)
+
+heatmap_df$model <- factor(heatmap_df$model,
+  levels = unique(heatmap_df$model),
+  labels = c("Model A", "Model B", "Model C", "Model D")
+)
+
+# plot the heatmap
+ggplot(heatmap_df, aes(x = variable, y = Dataset, fill = value)) +
+  geom_tile(color = "black", linewidth = 0.1) + 
+  scale_fill_gradientn (colours = c("white", "#cdc2ea", "#b585d1")) + 
+  labs(x = "", y = "Dataset") +
+  theme_minimal(base_size = 13) +
+  theme(
+    axis.text.x = element_text(angle = 90, size = 12, hjust = 1, vjust = 1),
+    panel.grid = element_blank(),
+    legend.position = "right",
+    strip.text = element_text(face = "bold", size = 10, hjust = 0.5),
+axis.text.y = element_text(size = 12)
+  ) +
+  coord_fixed() + 
+  facet_wrap(~model, nrow = 1)
+ggsave("data/results/Final_Figures/Supplementary_figures/heatmap_comparisons/heatmap_fe_regression.pdf", width = 10)
+
+```
+
+## S7. Number of LR pairs correctly classified when training the lung cancer dataset on 255 combinations of the 8 training datasets (raw counts on the left, percentages on the right)
+
+```{r}
+#| message: false
+#| include: true
+#| warning: false
+dir = "data/processed/training_256/correct"
+files = list.files(dir)
+file_list = list()
+
+for (i in files){
+  # read the files and store in a list
+  dat <- fread(file.path(dir, i))
+  x = nrow(dat)/255
+  dat$id = rep(1:x, 255)
+  data = dcast(dat, id ~ group, fun.aggregate = NULL, value.var = "correct")
+  data$sample = sub("classification_spe_list_(.*)_cellchat\\.csv", "\\1", i)
+  file_list[[i]] = data
+}
+
+prediction = setDT(do.call(rbind, file_list))
+rownames(prediction) = 1:nrow(prediction)
+col = prediction[, lapply(.SD, sum), by = sample, .SDcols = c(2:256)]
+percent <- prediction[, lapply(.SD, function(x) sum(x) *100 / .N), 
+                      by = sample, .SDcols = 2:256]
+
+colsums = melt(col, id.vars = "sample")
+percent = melt(percent, id.vars = "sample")
+# p1 = ggplot(colsums, aes(x = value)) +
+#   geom_histogram(binwidth = 1, fill = "#bebadb", color = "#bebadb") +
+#   theme_classic(base_size = 12) +
+#   labs(x = "Number of Correct classifications", y = "Number of combinations") +
+#   facet_wrap(~sample, scales = 'free')
+# 
+# p2 = ggplot(colsums, aes(x = "", y = value)) +
+#   geom_violin(fill = "#fcdeed", width = 0.4) + 
+#   geom_boxplot(color = "gray50", fill = "white", width = 0.05) + 
+#   geom_jitter(width = 0.3, alpha = 0.1, size = 0.5) + 
+#   theme_classic(base_size = 12) +
+#   theme(
+#     axis.text.x = element_blank(),
+#     axis.ticks.x = element_blank()
+#   ) + 
+#   labs(x = "", y = "LR pairs - classfied correct") +
+#   facet_wrap(~sample, scales = 'free')
+
+# p3 <- ggplot(percent, aes(x = value)) +
+#   geom_histogram(binwidth = 1, fill = "#8ed3c7", color = "black") +
+#   theme_classic(base_size = 12) +
+#   labs(x = "% of Correct classifications", y = "Number of combinations") +
+#   facet_wrap(~sample, scales = 'free')
+# 
+# p4 = ggplot(percent, aes(x = "", y = value)) +
+#   geom_violin(fill = "#ccebc5", width = 0.4) + 
+#   geom_boxplot(color = "black", fill = "white", width = 0.05) + 
+#   geom_jitter(width = 0.3, alpha = 0.1, size = 1) + 
+#   theme_classic(base_size = 12) +
+#   theme(
+#     axis.text.x = element_blank(),
+#     axis.ticks.x = element_blank()
+#   )  + 
+#   labs(x = "", y = "LR pairs - classfied correct (%)") + 
+#   facet_wrap(~sample, scales = 'free')
+
+# ggarrange (p1, p2, common.legend = T)
+# ggsave("data/results/Final_Figures/Supplementary_figures/counts_plots/counts_plots_combinations.pdf", height = 10, width = 10)
+```
+
+## S8.  Number of times each LR pair was classified correctly 
+```{r}
+#| message: false
+#| include: true
+#| warning: false
+
+row <- prediction[, .(value = rowSums(.SD)), by = sample, .SDcols = 2:256]
+percent <- prediction[, .(value = rowSums(.SD) * 100/ 256), 
+                      by = sample, .SDcols = 2:256]
+
+# p1 = ggplot(row, aes(x = value)) +
+#   geom_histogram(binwidth = 5, fill = "#fb8073", color = "black") +
+#   theme_classic(base_size = 12) +
+#   labs(x = "Number of combinations", y = "count of LR") +
+#   facet_wrap(~sample, scales = 'free')
+
+row$sample <- factor(row$sample,
+  levels = unique(row$sample),
+  labels = c("Brain (AD)",
+             "Brain (GL)",
+             "Breast Cancer",
+             "Lung",
+             "Lung (High-Res)",
+             "Lymph Node",
+             "Ovarian",
+             "Pancreas",
+             "Skin")
+)
+
+
+colors = c("#f57b6c", "#d4dda6", "#78c2e3", "#f2a8da", "#f3b773", "#84c3b7", "#fbe79e", "#b8aeea", "#88d7da" )
+ggplot(row, aes(x = value, y = sample, fill = sample)) +
+  geom_density_ridges(alpha = 0.7, color = "black", scale = 1) +
+  theme_classic(base_size = 16) + xlim(0,255) + 
+  labs(x = "Number of correctly \n classified LR pairs", y = "Datasets") +
+  scale_fill_manual(values = colors) + # customize colors
+  theme(legend.position = "none") 
+
+# 
+# ggplot(percent, aes(x = value, y = sample, fill = sample)) +
+#   geom_density_ridges(alpha = 0.7, color = "black", scale = 1) +
+#   theme_classic(base_size = 12) +
+#   labs(x = "Number of combinations", y = "Sample")
+# p2 = ggplot(row, aes(x = "", y = value)) +
+#   geom_violin(fill = "#efaba3", width = 0.6) + 
+#   geom_boxplot(color = "black", fill = "white", width = 0.05) + 
+#   geom_jitter(width = 0.3, alpha = 0.1, size = 1) + 
+#   theme_classic(base_size = 12) +
+#   theme(
+#     axis.text.x = element_blank(),
+#     axis.ticks.x = element_blank()
+#   )  + 
+#   labs(x = "", y = "Number of combinations") +
+#   facet_wrap(~sample, scales = 'free')
+
+# p3 <- ggplot(percent, aes(x = value)) +
+#   geom_histogram(binwidth = 5, fill = "#fdb461", color = "black") +
+#   theme_classic(base_size = 12) +
+#   labs(x = "% of combinations", y = "count of LR") +
+#   facet_wrap(~sample, scales = 'free')
+# 
+# p4 = ggplot(percent, aes(x = "", y = value)) +
+#   geom_violin(fill = "#ffffb4", width = 0.6) + 
+#   geom_boxplot(color = "black", fill = "white", width = 0.05) + 
+#   geom_jitter(width = 0.3, alpha = 0.1, size = 1) + 
+#   theme_classic(base_size = 12) +
+#   theme(
+#     axis.text.x = element_blank(),
+#     axis.ticks.x = element_blank()
+#   )  + 
+#   labs(x = "", y = "% of combinations")+
+#   facet_wrap(~sample, scales = 'free')
+
+# ggarrange (p1, p2, p3, p4)
+ggsave("data/results/Final_Figures/Supplementary_figures/counts_plots/lr_counts_plot.pdf")
+
+
+
+# other metrics 
+
+class_dir <- "data/processed/scores_training/classification_metrics/"
+
+files = list.files(class_dir)
+file_list = list()
+
+for (i in files){
+  # read the files and store in a list
+  dat <- fread(file.path(class_dir, i))
+  dat$sample = sub("classification_metrics_spe_list_(.*)_cellchat\\.csv", "\\1", i)
+  file_list[[i]] = dat
+}
+
+# join with the metrics with perclass metrics 
+metrics = do.call(rbind, file_list)
+perclass_metrics = fread("data/processed/scores_training/final_classification_metrics.csv")
+colnames(perclass_metrics)[11] = "group"
+perclass_metrics$sample = sub("classification_spe_list_(.*)_cellchat\\.csv$", "\\1", perclass_metrics$dataset)
+perclass_metrics = perclass_metrics[,-c(9,10,12)]
+metrics = metrics[perclass_metrics, on = .(sample, group)]
+metrics_further = metrics
+
+
+# Regression metrics 
+cyt_reg_dir <- "data/processed/scores_training/cyt_metrics"
+nuc_reg_dir <- "data/processed/scores_training/nuc_metrics"
+files = list.files(cyt_reg_dir)
+file_list = list()
+for (i in files){
+  # read the files and store in a list
+  dat <- fread(file.path(cyt_reg_dir, i))
+  dat$sample = sub("cyt_metrics_spe_list_(.*)_cellchat\\.csv", "\\1", i)
+  file_list[[i]] = dat
+}
+cyt_metrics = do.call(rbind, file_list)
+colnames(cyt_metrics)[1:3] = paste0("cyt_",colnames(cyt_metrics)[1:3])
+
+files = list.files(nuc_reg_dir)
+file_list = list()
+for (i in files){
+  # read the files and store in a list
+  dat <- fread(file.path(nuc_reg_dir, i))
+  dat$sample = sub("nuc_metrics_spe_list_(.*)_cellchat\\.csv", "\\1", i)
+  file_list[[i]] = dat
+}
+nuc_metrics = do.call(rbind, file_list)
+colnames(nuc_metrics)[1:3] = paste0("nuc_",colnames(nuc_metrics)[1:3])
+
+regression_metrics = cyt_metrics[nuc_metrics, on = .(group, sample)]
+regression_metrics$`cyt_R²` = ifelse(regression_metrics$`cyt_R²`<0, 0, regression_metrics$`cyt_R²`)
+regression_metrics$`nuc_R²` = ifelse(regression_metrics$`nuc_R²`<0, 0, regression_metrics$`nuc_R²`)
+regression_metrics_further = regression_metrics
+
+regression_metrics = melt(regression_metrics, id.vars = c('sample', "group"), measure.vars = c(1:3, 6:8))
+regression_metrics$facets <- with(regression_metrics,
+  ifelse(variable %in% levels(regression_metrics$variable)[c(1,4)], "R²",
+  ifelse(variable %in% levels(regression_metrics$variable)[c(3,6)], "NRMSE", 'RMSE'))
+)
+
+regression_metrics$facets = factor(regression_metrics$facets, levels = c("R²", "NRMSE", 'RMSE'))
+
+
+
+metrics = metrics_further[regression_metrics_further, on = .(group, sample)]
+combo_metrics = metrics[, c(9,7,8,12,10,11,1,3,13,17,19)]
+dt = melt(combo_metrics)
+dt$variable <- factor(dt$variable,
+  levels = unique(dt$variable),
+  labels = c("F1 (Class 0)", "Precision (Class 0)", "Recall (Class 0)",
+  "F1 (Class 1)", "Precision (Class 1)", "Recall (Class 1)",
+  "Accuracy", "Macro F1", "Macro Precision",
+  "Cytoplasm RMSE", "Nucleus RMSE")
+)
+
+colors = c("#1f77b4","#3a99d9","#5cb0e0","#7fc7e6","#a3d5eb","#c7e3f0","#fdb462","#fec978","#fee0a3","#9467bd","#b087d0")
+ggplot(dt, aes(x = variable, y = value)) +
+  geom_violin(width = 1, aes(fill = variable)) + 
+  scale_fill_manual(values = colors) + 
+  geom_boxplot(color = "black", fill = "white", width = 0.2) +
+  theme_classic(base_size = 18) +
+    theme(
+      axis.text = element_text(size = 16),
+      axis.title = element_text(size = 18),
+      legend.position = "",
+      plot.title = element_text(size = 18, hjust = 0.5),
+      axis.text.x = element_text(angle = 45,  hjust = 1, vjust = 1)
+    ) +
+  labs( x = "", y = "Value") + coord_cartesian(ylim=c(0,1)) 
+ggsave("data/results/Final_Figures/Supplementary_figures/counts_plots/combo_metrics.pdf", width = 8)
+
+# split the composite metric alone
+combo_metrics = metrics[, c(4,5,6,14,15,18,17,20)]
+combo_metrics[ , geometric_mean := abs(roc_auc 
+                                 * (1 - ((cyt_NRMSE + nuc_NRMSE)/2)) 
+                                    * macro_recall 
+                                    * ((`cyt_R²` + `nuc_R²`)/2)
+                                 )**(1/4)]
+
+
+combo_metrics = combo_metrics[,c(3,9)]
+
+
+combo_metrics$sample <- factor(combo_metrics$sample,
+  levels = unique(combo_metrics$sample),
+  labels = c("Brain (AD)",
+             "Brain (GL)",
+             "Breast Cancer",
+             "Lung",
+             "Lung (High-Res)",
+             "Lymph Node",
+             "Ovarian",
+             "Pancreas",
+             "Skin")
+)
+
+
+colors = c("#f57b6c", "#d4dda6", "#78c2e3", "#f2a8da", "#f3b773", "#84c3b7", "#fbe79e", "#b8aeea", "#88d7da" )
+ggplot(combo_metrics, aes(x = geometric_mean, y = sample, fill = sample)) +
+  geom_density_ridges(alpha = 0.7, color = "black", scale = 1) +
+  theme_classic(base_size = 20) + xlim(0,1) + 
+  labs(x = "Composite metric", y = "Datasets") +
+  scale_fill_manual(values = colors) + # customize colors
+  theme(legend.position = "none") 
+
+
+ggsave("data/results/Final_Figures/Supplementary_figures/counts_plots/composite_metric.pdf")
+```
+
+## S9. Are spatial features important?
+```{r}
+metrics = fread("data/processed/metrics_all_combinations_trainings_10032025.csv")
+df_long <- metrics[,c(16,24,1,6,3,8,9,12)]
+colnames(df_long) = c("AUC",
+             "Recall (Macro)",
+             "R² – Cytoplasm",
+             "R² – Nucleus",
+             # "RMSE – Cytoplasm",
+             # "RMSE – Nucleus",
+             "NRMSE – Cytoplasm",
+             "NRMSE – Nucleus",
+             "condition",
+             "combo_size")
+df_long <- df_long %>%
+   pivot_longer(cols = colnames(df_long)[c(1:6)],
+                names_to = "metric", values_to = "value")
+
+df_summary <- df_long %>%
+  group_by(combo_size, condition, metric) %>%
+  summarise(mean_val = mean(value, na.rm = TRUE),
+            sd_val = sd(value, na.rm = TRUE)/sqrt(n()), .groups = "drop")
+
+df_summary$metric = factor(df_summary$metric,
+                           levels = c("AUC",
+             "Recall (Macro)",
+             "R² – Cytoplasm",
+             "R² – Nucleus",
+             # "RMSE – Cytoplasm",
+             # "RMSE – Nucleus",
+             "NRMSE – Cytoplasm",
+             "NRMSE – Nucleus",
+             "condition",
+             "combo_size")
+                             )
+
+colors = c('with_spatial' = "#b715b7", "without_spatial" = "#14bf81")
+ggplot(df_summary, aes(x = combo_size, y = mean_val, color = condition, group = condition)) +
+  geom_line() +
+  geom_point() +
+  scale_color_manual(
+  name   = "Model type",
+  values = colors,
+  labels = c(
+    with_spatial    = "With spatial information",
+    without_spatial = "Without spatial information"
+  )
+) + 
+  geom_errorbar(aes(ymin = mean_val - sd_val, ymax = mean_val + sd_val), width = 0.2) +
+  # facet_wrap(~metric, scales = "free_y", ncol = 4) +
+  labs( x = "Number of training datasets", y = "Value") + 
+  facet_wrap(~metric, scales = "free",ncol =3) + theme_classic(base_size = 13) +
+  theme(
+    axis.text.x = element_text(angle = 90, size = 12, hjust = 1, vjust = 1),
+    panel.grid = element_blank(),
+    legend.position = "bottom",
+    strip.text = element_text(face = "bold", size = 10, hjust = 0.5),
+    axis.text.y = element_text(size = 12),
+    strip.background = element_blank(), strip.placement = "outside"
+  ) 
+
+ggsave("data/results/Final_Figures/Supplementary_figures/best_model_metrics/spatial_features.pdf", height = 10)
+```
+ 
+## S9. Correlation of region specific scores with the cell score with and without spatial feature, B.  Distribution of the pairwise difference between the various model trainings on different combination of datasets given a candidate dataset (lung cancer dataset included) C. Network plot (interaction sum) of the LR scores on the single cell data in the  predicted cytoplasm and nucleus
+
+```{r}
+df =  fread("data/processed/training_data_071025.csv")
+
+# compute correlation per sample
+corr_df <- df %>%
+  group_by(sample) %>%
+  summarise(corr = cor(cell_P1, cyt_P1, use="complete.obs", method="pearson"),
+            .groups="drop")
+
+corr_df$sample <- c("Brain (AD)",
+             "Brain (GL)",
+             "Breast Cancer",
+             "Lung",
+             "Lung (High-Res)",
+             "Lymph Node",
+             "Ovarian",
+             "Pancreas",
+             "Skin")
+# plot
+p1 = ggplot(corr_df, aes(x=sample, y=corr, fill=sample)) +
+  geom_col() +
+  coord_flip() +
+  labs(title="Correlation between cell_P1 and cyt_P1 \n(without spatial)",
+       y="Pearson correlation", x="Sample") +
+  theme(legend.position = "")
+
+
+corr_df <- df %>%
+  group_by(sample) %>%
+  summarise(corr = cor(cell_score, cyt_score, use="complete.obs", method="pearson"),
+            .groups="drop")
+
+corr_df$sample <- c("Brain (AD)",
+             "Brain (GL)",
+             "Breast Cancer",
+             "Lung",
+             "Lung (High-Res)",
+             "Lymph Node",
+             "Ovarian",
+             "Pancreas",
+             "Skin")# plot
+ 
+p2 = ggplot(corr_df, aes(x=sample, y=corr, fill=sample)) +
+  geom_col() +
+  coord_flip() +
+  labs(title="Correlation between cell_score and cyt_score \n(with spatial)",
+       y="Pearson correlation", x="Sample") +
+  theme(legend.position = "")
+
+ggarrange(p1,p2)
+
+
+
+# compute correlation per sample
+corr_df <- df %>%
+  group_by(sample) %>%
+  summarise(corr = cor(cell_P1, nuc_P1, use="complete.obs", method="pearson"),
+            .groups="drop")
+
+
+corr_df$sample <- c("Brain (AD)",
+             "Brain (GL)",
+             "Breast Cancer",
+             "Lung",
+             "Lung (High-Res)",
+             "Lymph Node",
+             "Ovarian",
+             "Pancreas",
+             "Skin")
+# plot
+p3 = ggplot(corr_df, aes(x=sample, y=corr, fill=sample)) +
+  geom_col() +
+  coord_flip() +
+  labs(title="Correlation between cell_P1 and nuc_P1 \n(without spatial)",
+       y="Pearson correlation", x="Sample") +
+  theme(legend.position = "")
+
+
+corr_df <- df %>%
+  group_by(sample) %>%
+  summarise(corr = cor(cell_score, nuc_score, use="complete.obs", method="pearson"),
+            .groups="drop")
+
+corr_df$sample <- c("Brain (AD)",
+             "Brain (GL)",
+             "Breast Cancer",
+             "Lung",
+             "Lung (High-Res)",
+             "Lymph Node",
+             "Ovarian",
+             "Pancreas",
+             "Skin")# plot
+ 
+p4 = ggplot(corr_df, aes(x=sample, y=corr, fill=sample)) +
+  geom_col() +
+  coord_flip() +
+  labs(title="Correlation between cell_score and nuc_score \n(with spatial)",
+       y="Pearson correlation", x="Sample") +
+  theme(legend.position = "")
+
+ggarrange(p1,p2,p3,p4)
+
+
+
+# Cytoplasmic comparison
+corr_no_spatial <- df %>%
+  group_by(sample) %>%
+  summarise(corr = cor(cell_P1, cyt_P1, use="complete.obs", method="pearson"),
+            .groups="drop") %>%
+  mutate(type = "Without spatial")
+corr_no_spatial$sample <- c("Brain (AD)","Brain (GL)","Breast Cancer","Lung",
+                     "Lung (High-Res)","Lymph Node","Ovarian","Pancreas","Skin")
+corr_spatial <- df %>%
+  group_by(sample) %>%
+  summarise(corr = cor(cell_score, cyt_score, use="complete.obs", method="pearson"),
+            .groups="drop") %>%
+  mutate(type = "With spatial")
+corr_spatial$sample <- c("Brain (AD)","Brain (GL)","Breast Cancer","Lung",
+                     "Lung (High-Res)","Lymph Node","Ovarian","Pancreas","Skin")
+cyt_corr <- bind_rows(corr_no_spatial, corr_spatial)
+
+
+p_cyt <- ggplot(cyt_corr, aes(x=sample, y=corr, fill=type)) +
+  geom_col(position="dodge") +
+  labs(
+       y="Pearson correlation", x="") +
+  scale_fill_manual(values = c("#D2665A", "#F2B28C")) + 
+  theme_classic(base_size = 20) +
+  theme(legend.title=element_blank(),
+        axis.text.x = element_text(angle = 45, size = 12, hjust = 1, vjust = 1))
+
+# Nuclear comparison
+corr_no_spatial <- df %>%
+  group_by(sample) %>%
+  summarise(corr = cor(cell_P1, nuc_P1, use="complete.obs", method="pearson"),
+            .groups="drop") %>%
+  mutate(type = "Without spatial")
+corr_no_spatial$sample <- c("Brain (AD)","Brain (GL)","Breast Cancer","Lung",
+                     "Lung (High-Res)","Lymph Node","Ovarian","Pancreas","Skin")
+corr_spatial <- df %>%
+  group_by(sample) %>%
+  summarise(corr = cor(cell_score, nuc_score, use="complete.obs", method="pearson"),
+            .groups="drop") %>%
+  mutate(type = "With spatial")
+corr_spatial$sample <- c("Brain (AD)","Brain (GL)","Breast Cancer","Lung",
+                     "Lung (High-Res)","Lymph Node","Ovarian","Pancreas","Skin")
+nuc_corr <- bind_rows(corr_no_spatial, corr_spatial)
+
+p_nuc <- ggplot(nuc_corr, aes(x=sample, y=corr, fill=type)) +
+  geom_col(position="dodge") +
+  scale_fill_manual(values = c("#D2665A", "#F2B28C"))+
+  labs(
+       y="", x="") +
+  theme_classic(base_size = 20) +
+  theme(legend.title=element_blank(),
+        axis.text.x = element_text(angle = 45, size = 12, hjust = 1, vjust = 1))
+
+ggarrange(p_cyt, p_nuc, ncol=2, common.legend=TRUE, legend="bottom")
+
+ggsave("data/results/Final_Figures/Supplementary_figures/single_cell/correlation.pdf", width = 10)
+
+# scatter plot  join the nuc and cytoplasm 
+colnames(nuc_corr)[2] = "Nucleus"
+colnames(cyt_corr)[2] = "Cytoplasm"
+# inner join
+setDT(nuc_corr)
+setDT(cyt_corr)
+data = cyt_corr[nuc_corr, on = c('sample', 'type')]
+data_plot = melt(data, id.vars = c(1,3), measure.vars = c(2,4), variable.name = "Region")
+wide <- dcast(
+  data_plot,
+  sample + variable ~ type,
+  value.var = "value"
+)
+
+colnames(wide)[1:2] = c("Dataset","Region") 
+ggplot(wide, aes(x=`With spatial`, y=`Without spatial`, color=Region, shape = Dataset)) + geom_point() +
+  scale_color_manual(values = c("#D2665A", "#F2B28C")) + 
+  scale_shape_manual(values = 1:9)
+
+ggsave("data/results/Final_Figures/Supplementary_figures/single_cell/correlation.pdf")
+
+
+metrics = fread("data/processed/metrics_all_combinations_trainings_10032025.csv")
+metrics[ , geometric_mean := (roc_auc 
+                                 * (1 - ((cyt_NRMSE + nuc_NRMSE)/2)) 
+                                    * macro_recall 
+                                    * ((`cyt_R²` + `nuc_R²`)/2)
+                                 )**(1/4)]
+
+
+df_long <- metrics[,c(9,28,10,11, 12)]
+
+spatial = df_long[condition == "with_spatial",]
+no_spatial = df_long[condition == "without_spatial",]
+#check
+identical(spatial[,3:5], no_spatial[,3:5])
+
+df_long = spatial[,3:5]
+df_long$difference = spatial$geometric_mean - no_spatial$geometric_mean
+df_long = na.omit(df_long)
+
+df_long$test_name <- factor(df_long$test_name,
+  levels = unique(df_long$test_name),
+  labels = c("Brain (AD)",
+             "Brain (GL)",
+             "Breast Cancer",
+             "Lung",
+             "Lung (High-Res)",
+             "Lymph Node",
+             "Ovarian",
+             "Pancreas",
+             "Skin")
+)
+
+ggplot(df_long, aes(x = test_name, y = difference, fill = test_name)) +
+  geom_boxplot(outliers = TRUE) +
+  scale_fill_manual(values = colors) + 
+  # facet_wrap(~metric, scales = "free_y", ncol = 4) +
+  labs( x = "", y = "Difference in geometric means") + 
+  theme_classic(base_size = 20) +
+  theme(
+    axis.text.x = element_text(angle = 45, size = 12, hjust = 1, vjust = 1),
+    panel.grid = element_blank(),
+    legend.position = "",
+    strip.text = element_text(face = "bold", size = 10, hjust = 0.5),
+axis.text.y = element_text(size = 18)
+  )
+ggsave("data/results/Final_Figures/Supplementary_figures/single_cell/boxplot_difference.pdf", width =8)
+```
+
+## Exploring if the incorrect classifications are in low number of datasets
+
+
+```{r}
+dir = "data/processed/scores_training/classification_raw"
+files = list.files(dir)[1:9]
+file_list = list()
+
+for (i in files){
+  # read the files and store in a list
+  dat <- fread(file.path(dir, i))
+  dat$correct = ifelse(dat$pred == dat$true, 1, 0)
+  x = nrow(dat)/255
+  dat$id = rep(1:x, 255)
+  data = dcast(dat, id ~ group, fun.aggregate = NULL, value.var = "correct")
+  data$sample = sub("classification_spe_list_(.*)_cellchat\\.csv", "\\1", i)
+  file_list[[i]] = data
+}
+
+prediction = setDT(do.call(rbind, file_list))
+rownames(prediction) = 1:nrow(prediction)
+col = prediction[, lapply(.SD, sum), by = sample, .SDcols = c(2:256)]
+percent <- prediction[, lapply(.SD, function(x) sum(x) *100 / .N), 
+                      by = sample, .SDcols = 2:256]
+
+counts <- prediction[, .N, by = sample]
+counts$sample <- factor(counts$sample,
+  levels = unique(counts$sample)
+)
+
+data = fread("data/processed/combinations_iters.csv")
+data$sample = gsub("^spe_list_|_cellchat$", "",data$test_name)
+column = melt(col, id.vars = 'sample', measure.vars = 2:256, variable.name = 'combo_id')
+setDT(column)
+setkey(column, combo_id, sample)
+setkey(data, combo_id, sample)
+merged_dt <- data[column]
+merged_dt = merged_dt[counts, on = 'sample']
+merged_dt[,percent:= value/N]
+summary_df <- merged_dt %>%
+  group_by(combo_size, sample) %>%
+  summarise(
+    mean_percent = mean(percent),
+    median_percent = median(percent)
+  ) %>%
+  ungroup()
+
+summary_df$combo_size = as.factor(summary_df$combo_size)
+ggplot(summary_df, aes(x = combo_size, y = median_percent, color = sample, group = sample)) +
+  geom_bar(size = 2) +
+  labs(
+    x = "Number of Combinations",
+    y = "Mean Percent Correct",
+    title = "Mean Percent Correct by Combo Size per Sample",
+    color = "Sample"
+  ) +
+  theme_classic()
+
+ggplot(summary_df, aes(x = sample, y = median_percent, fill = combo_size)) +
+  geom_col(position = position_dodge(width = 0.8)) +
+  labs(
+    x = "Number of Combinations",
+    y = "Median Percent Correct",
+    title = "Median Percent Correct by Combo Size per Sample",
+    fill = "Sample"
+  ) +
+  theme_classic()
+
+```
+

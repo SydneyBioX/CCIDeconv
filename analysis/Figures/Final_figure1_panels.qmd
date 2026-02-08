@@ -1,0 +1,956 @@
+---
+title: "Figure 1"
+author: "rshreej"
+date: "`r format(Sys.time(), '%B %d, %Y')`"
+format: 
+  html:
+    toc: true
+    toc-depth: 2
+    toc-expand: true
+    number-sections: true
+    theme: united
+    highlight: tango
+    code-fold: true
+    code-tools: true
+    embed-resources: true
+editor: 
+  markdown: 
+    wrap: 72
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r}
+knitr::opts_knit$set(root.dir = here::here())
+```
+
+```{r}
+#| message: false
+#| include: false
+#| warning: false
+library(data.table)
+library(circlize)
+library(ggvenn)
+library(cowplot)
+library(pheatmap)
+library(cowplot)
+library(ComplexHeatmap)
+library(fgsea)
+library(msigdbr)
+library(ggpubr)
+library(clusterProfiler)
+library(enrichplot) 
+library(patchwork)
+library(ggbiplot)
+library(tidyverse)
+```
+
+```{r}
+themes = theme(
+  text = element_text(family = "Arial", size = 10),
+  axis.title = element_text(size = 9),
+  axis.text = element_text(size = 8),
+  legend.text = element_text(size = 8),
+  legend.title = element_text(size = 9),
+  strip.text = element_text(size = 9)
+)
+```
+
+# Figure 1: Differences in subcellular communication across 9 different datasets 
+
+## Overview of subcellular cell cell communication and quantification of communication scores across regions
+
+```{r}
+#| message: false
+#| include: true
+#| warning: false
+#| label: panelA
+```
+
+## Significant interactions detected using CellChat are different between the cytoplasm and nucleus across the 9 tested data sets
+
+```{r}
+#| message: false
+#| include: true
+#| warning: false
+#| label: panelB 
+#| fig-height: 15
+#| fig-width: 15
+data <- fread("data/processed/training_data_071025.csv")
+data$unique_id = paste0(data$lr_pair, "_", data$source, "_", data$target)
+venn_data = list()
+plot_list = list()
+datasets = unique(data$sample)
+titles = c("Brain (AD)",
+             "Brain (GL)",
+             "Breast Cancer",
+             "Lung",
+             "Lung (High-Res)",
+             "Lymph Node",
+             "Ovarian",
+             "Pancreas",
+             "Skin")
+for (i in 1:length(datasets)){
+  subset = data[sample == datasets[i],]
+  data_list = list(
+    Cell = as.vector(subset[cell_pval <0.05 & cell_score >0,unique_id]),
+    Cytoplasm = as.vector(subset[cyt_pval <0.05 & cyt_score > 0,unique_id]),
+    Nucleus = as.vector(subset[nuc_pval <0.05& nuc_score > 0,unique_id])
+  )
+  venn_data[[i]] = data_list
+  # Better theme
+  p = ggvenn(
+    data_list,
+    fill_color = c("#c8e6a3", "#f37043", "#4965b0"),
+    stroke_size = 0,
+    fill_alpha = 0.7,
+    stroke_color = "white",
+    set_name_color = "#a41146",
+    set_name_size = 9,
+    text_size = 9,
+    show_percentage = F,
+  ) + 
+    coord_fixed() + 
+  ggtitle(titles[i]) +
+  theme_minimal(base_size = 30) +
+  theme(
+    plot.title = element_text(hjust = 0.5, face = "bold", size = 30),
+    legend.position = "none",
+    axis.title = element_blank(),
+    axis.text = element_blank(),
+    axis.ticks = element_blank(),
+    axis.line = element_blank(),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    panel.background = element_blank()) +coord_cartesian(clip="off")
+
+  plot_list[[i]] <- p
+}
+plot_grid(plotlist = plot_list, ncol = 3)
+
+ggsave("data/results/Final_Figures/Final_figure1/venn_diagram.pdf", height = 20, width = 20)
+```
+
+##Heatmap of the communication score of significant interactions occurring between the different regions of the cell
+
+```{r}
+#| message: false
+#| warning: false
+#| include: true
+#| fig-width: 10
+#| fig-height: 10 
+data$unique_id = paste0(data$lr_pair, "_", data$source, "_", data$target)
+venn_data = list()
+for (i in unique(data$sample)){
+  subset = data[sample == i,]
+  data_list = list(
+    cel = subset[cell_pval <0.05 & cell_score >0,.(cell_score, unique_id)],
+    cyt = subset[cyt_pval <0.05 & cyt_score > 0,.(cyt_score, unique_id)],
+    nuc = subset[nuc_pval <0.05& nuc_score > 0,.(nuc_score,unique_id)]
+  )
+  venn_data[[i]] = data_list
+}
+
+files = list.files('data/processed/cyt_to_nuc')
+cyt_to_nuc = list()
+nuc_to_cyt = list()
+for (i in files){
+  filename = gsub(".rds", "", i)
+  obj = readRDS(file.path('data/processed/cyt_to_nuc', i))
+  scores <- as.data.frame(as.table(obj[["Prob_P2_P3_P4"]]))
+  pval <- as.data.frame(as.table(obj[["PvalP2_P3_P4"]]))
+  colnames(scores) = c("source", "target", "lr_pair", "cyt_nuc_score")
+  colnames(pval) = c("source", "target", "lr_pair", "pval")
+  df = setDT(inner_join(scores, pval, by = intersect(colnames(scores), colnames(pval))))
+  df$unique_id = paste0(df$lr_pair, "_", df$source, "_", df$target)
+  cyt_to_nuc[[filename]] = df[pval<0.05,.(cyt_nuc_score, unique_id)]
+  obj = readRDS(file.path('data/processed/nuc_to_cyt', i))
+  scores <- as.data.frame(as.table(obj[["Prob_P2_P3_P4"]]))
+  pval <- as.data.frame(as.table(obj[["PvalP2_P3_P4"]]))
+  colnames(scores) = c("source", "target", "lr_pair", "nuc_cyt_score")
+  colnames(pval) = c("source", "target", "lr_pair", "pval")
+  df = setDT(inner_join(scores, pval, by = intersect(colnames(scores), colnames(pval))))
+  df$unique_id = paste0(df$lr_pair, "_", df$source, "_", df$target)
+  nuc_to_cyt[[filename]] = df[pval<0.05,.(nuc_cyt_score, unique_id)]
+}
+
+# add cyt-nuc to the venn data
+for (i in names(venn_data)){
+  venn_data[[i]][['cyt_to_nuc']] = cyt_to_nuc[[i]]
+  venn_data[[i]][['nuc_to_cyt']] = nuc_to_cyt[[i]]
+}
+
+library(data.table)
+
+# Store joined table per sample
+sample_level_tables <- list()
+
+for (sample_name in names(venn_data)) {
+  sample_data <- venn_data[[sample_name]]
+  dt_list <- list()
+
+  for (group_name in names(sample_data)) {
+    dt <- sample_data[[group_name]]
+    
+    if (is.data.table(dt)) {
+      dt_copy <- copy(dt)
+      
+      # Rename the score column to group name (e.g., "cel", "cyt", ...)
+      score_col <- setdiff(names(dt_copy), "unique_id")
+      setnames(dt_copy, score_col, group_name)
+
+      dt_list[[group_name]] <- dt_copy
+    }
+  }
+
+  # Full outer join of all groups within this sample
+  sample_dt <- Reduce(function(x, y) merge(x, y, by = "unique_id", all = TRUE), dt_list)
+  sample_level_tables[[sample_name]] <- sample_dt
+}
+
+
+sample_level_tables <- list()
+
+for (sample_name in names(venn_data)) {
+  sample_data <- venn_data[[sample_name]]
+  dt_list <- list()
+
+  for (group_name in names(sample_data)) {
+    dt <- sample_data[[group_name]]
+    
+    if (is.data.table(dt)) {
+      dt_copy <- copy(dt)
+      
+      # Rename the score column to group name (e.g., "cel", "cyt", ...)
+      score_col <- setdiff(names(dt_copy), "unique_id")
+      setnames(dt_copy, score_col, group_name)
+
+      dt_list[[group_name]] <- dt_copy
+    }
+  }
+
+  # Full outer join of all groups within this sample
+  sample_dt <- Reduce(function(x, y) merge(x, y, by = "unique_id", all = TRUE), dt_list)
+  sample_level_tables[[sample_name]] <- sample_dt
+}
+
+heatmap_df <- Reduce(rbind, sample_level_tables)
+heatmap_df[is.na(heatmap_df)] <- 0
+
+heatmap_df <- heatmap_df %>%
+  mutate(compartment = case_when(
+    cel > 0 & cyt > 0 & nuc > 0 & cyt_to_nuc > 0 & nuc_to_cyt > 0 ~ "common",
+
+    cel > 0 & cyt > 0 & nuc > 0 & cyt_to_nuc > 0 & nuc_to_cyt == 0 ~ "cell; cytoplasm; nucleus; cytoplasm to nucleus",
+    cel > 0 & cyt > 0 & nuc > 0 & cyt_to_nuc == 0 & nuc_to_cyt > 0 ~ "cell; cytoplasm; nucleus; nucleus to cytoplasm",
+    cel > 0 & cyt > 0 & nuc > 0 & cyt_to_nuc == 0 & nuc_to_cyt == 0 ~ "cell; cytoplasm; nucleus",
+
+    cel > 0 & cyt > 0 & nuc == 0 & cyt_to_nuc > 0 & nuc_to_cyt > 0 ~ "cell; cytoplasm; cytoplasm to nucleus; nucleus to cytoplasm",
+    cel > 0 & cyt > 0 & nuc == 0 & cyt_to_nuc > 0 & nuc_to_cyt == 0 ~ "cell; cytoplasm; cytoplasm to nucleus",
+    cel > 0 & cyt > 0 & nuc == 0 & cyt_to_nuc == 0 & nuc_to_cyt > 0 ~ "cell; cytoplasm; nucleus to cytoplasm",
+    cel > 0 & cyt > 0 & nuc == 0 & cyt_to_nuc == 0 & nuc_to_cyt == 0 ~ "cell; cytoplasm",
+
+    cel > 0 & cyt == 0 & nuc > 0 & cyt_to_nuc > 0 & nuc_to_cyt > 0 ~ "cell; nucleus; cytoplasm to nucleus; nucleus to cytoplasm",
+    cel > 0 & cyt == 0 & nuc > 0 & cyt_to_nuc > 0 & nuc_to_cyt == 0 ~ "cell; nucleus; cytoplasm to nucleus",
+    cel > 0 & cyt == 0 & nuc > 0 & cyt_to_nuc == 0 & nuc_to_cyt > 0 ~ "cell; nucleus; nucleus to cytoplasm",
+    cel > 0 & cyt == 0 & nuc > 0 & cyt_to_nuc == 0 & nuc_to_cyt == 0 ~ "cell; nucleus",
+
+    cel > 0 & cyt == 0 & nuc == 0 & cyt_to_nuc > 0 & nuc_to_cyt > 0 ~ "cell; cytoplasm to nucleus; nucleus to cytoplasm",
+    cel > 0 & cyt == 0 & nuc == 0 & cyt_to_nuc > 0 & nuc_to_cyt == 0 ~ "cell; cytoplasm to nucleus",
+    cel > 0 & cyt == 0 & nuc == 0 & cyt_to_nuc == 0 & nuc_to_cyt > 0 ~ "cell; nucleus to cytoplasm",
+    cel > 0 & cyt == 0 & nuc == 0 & cyt_to_nuc == 0 & nuc_to_cyt == 0 ~ "cell",
+
+    cel == 0 & cyt > 0 & nuc > 0 & cyt_to_nuc > 0 & nuc_to_cyt > 0 ~ "cytoplasm; nucleus;cytoplasm to nucleus; nucleus to cytoplasm",
+    cel == 0 & cyt > 0 & nuc > 0 & cyt_to_nuc > 0 & nuc_to_cyt == 0 ~ "cytoplasm; nucleus ; cytoplasm to nucleus",
+    cel == 0 & cyt > 0 & nuc > 0 & cyt_to_nuc == 0 & nuc_to_cyt > 0 ~ "cytoplasm; nucleus; nucleus to cytoplasm",
+    cel == 0 & cyt > 0 & nuc > 0 & cyt_to_nuc == 0 & nuc_to_cyt == 0 ~ "cytoplasm; nucleus",
+
+    cel == 0 & cyt > 0 & nuc == 0 & cyt_to_nuc > 0 & nuc_to_cyt > 0 ~ "cytoplasm; cytoplasm to nucleus; nucleus to cytoplasm",
+    cel == 0 & cyt > 0 & nuc == 0 & cyt_to_nuc > 0 & nuc_to_cyt == 0 ~ "cytoplasm; cytoplasm to nucleus",
+    cel == 0 & cyt > 0 & nuc == 0 & cyt_to_nuc == 0 & nuc_to_cyt > 0 ~ "cytoplasm; nucleus to cytoplasm",
+    cel == 0 & cyt > 0 & nuc == 0 & cyt_to_nuc == 0 & nuc_to_cyt == 0 ~ "cytoplasm",
+
+    cel == 0 & cyt == 0 & nuc > 0 & cyt_to_nuc > 0 & nuc_to_cyt > 0 ~ "nucleus; cytoplasm to nucleus; nucleus to cytoplasm",
+    cel == 0 & cyt == 0 & nuc > 0 & cyt_to_nuc > 0 & nuc_to_cyt == 0 ~ "nucleus; cytoplasm to nucleus",
+    cel == 0 & cyt == 0 & nuc > 0 & cyt_to_nuc == 0 & nuc_to_cyt > 0 ~ "nucleus; nucleus to cytoplasm",
+    cel == 0 & cyt == 0 & nuc > 0 & cyt_to_nuc == 0 & nuc_to_cyt == 0 ~ "nucleus",
+
+    cel == 0 & cyt == 0 & nuc == 0 & cyt_to_nuc > 0 & nuc_to_cyt > 0 ~ "cytoplasm to nucleus;nucleus to cytoplasm",
+    cel == 0 & cyt == 0 & nuc == 0 & cyt_to_nuc > 0 & nuc_to_cyt == 0 ~ "cytoplasm to nucleus",
+    cel == 0 & cyt == 0 & nuc == 0 & cyt_to_nuc == 0 & nuc_to_cyt > 0 ~ "nucleus to cytoplasm",
+
+    cel == 0 & cyt == 0 & nuc == 0 & cyt_to_nuc == 0 & nuc_to_cyt == 0 ~ "none"
+  ))
+
+heatmap_matrix <- as.matrix(heatmap_df[,c(-1,-7)])
+annotation_row <- data.frame(Compartment = heatmap_df$compartment)
+log_mat <- log10(heatmap_matrix+1e-10)
+
+annotation_row <- data.frame(Compartment = heatmap_df$compartment)
+rownames(log_mat) = rownames(annotation_row)
+color <- brewer.pal(9, "Reds")
+library(RColorBrewer)
+palette1 <- brewer.pal(12, "Paired")
+palette2 <- brewer.pal(8, "Dark2")
+palette3 <- brewer.pal(8, "Set2")
+palette4 <- brewer.pal(8, "Accent")
+all_colors <- c(palette1, palette2, palette3, palette4)
+all_colors <- unique(all_colors)[1:32]
+compartments <- unique(annotation_row$Compartment)
+compartment_colors <- setNames(all_colors[1:length(compartments)], compartments)
+ann_colors <- list(Compartment = compartment_colors)
+colnames(log_mat) = c("cell", "Cytoplasm", "Nucleus", "Cytoplasm to Nucleus", "Nucleus to Cytoplasm")
+pdf("data/results/Final_Figures/Final_figure1/heatmap.pdf", width=10, height=10)
+pheatmap(
+  log_mat,
+  annotation_row = annotation_row,
+  annotation_colors = ann_colors,
+  cluster_rows = TRUE,
+  cluster_cols = TRUE,
+  show_rownames = FALSE,
+  annotation_legend = FALSE,
+  legend = FALSE,
+  fontsize = 20,
+  annotation_names_row = FALSE,
+  cellheight = 0.1,
+  # title = "Communication score (log 10)",
+  color = colorRampPalette(color)(100)[14:100]
+)
+dev.off()
+
+# get the annotation legend separately 
+pdf("data/results/Final_Figures/Final_figure1/heatmap_annotation.pdf", width=5, height=5)
+lgd = Legend(labels = names(ann_colors$Compartment), legend_gp = gpar(fill = ann_colors$Compartment, fontsize = 14),
+       title = "Region", nrow = 23)
+grid.newpage()
+draw(lgd)
+dev.off()
+
+pdf("data/results/Final_Figures/Final_figure1/heatmap_legend.pdf", width=5, height=3)
+col_fun = colorRamp2(
+  c(-2, -6, -10),                      
+  c("#67000D", "#F5553C", "#FDDECF")     
+)
+
+lgd = Legend(
+  at = c(-2, -6, -10),
+  labels = c(expression(10^-2), expression(10^-6), expression(10^-10)),
+  col_fun = col_fun,
+  title = "Communication score",
+  direction = "horizontal"
+)
+grid.newpage()
+draw(lgd)
+dev.off()
+
+```
+
+## Gene set enrichment analysis done on the ligands and receptors of significant interactions by region showed communication pathways approximate relation to that region
+
+```{r}
+#| message: false
+#| warning: false
+#| include: true
+#| fig-width: 30
+#| fig-height: 30 
+# Gene set enrichment analysis ********************************************
+data = fread("data/processed/training_data_071025.csv")
+theme_set(theme_classic(base_size = 14))
+# # Download th gmt files
+# gs_cc <- msigdbr(species = "Homo sapiens", category="C5", subcategory="GO:CC")
+# # gs_bp <- msigdbr(species = "Homo sapiens", category="C5", subcategory="GO:BP")
+# # gs_reactome <- msigdbr(species = "Homo sapiens", category="C2", subcategory="CP:REACTOME")
+# 
+# # convert each to list
+# gs_cc_list <- split(gs_cc$gene_symbol, gs_cc$gs_name)
+# #gs_bp_list <- split(gs_bp$gene_symbol, gs_bp$gs_name)
+# # gs_reactome_list <- split(gs_reactome$gene_symbol, gs_reactome$gs_name)
+# 
+# # combine
+# gene_sets <- c(gs_cc_list)
+# 
+# ##################################### Ligand - GO enrichment in the cytoplasm ##################################### 
+# # cyt_data = data[cyt_score >0,.(cyt_score, ligand)]
+# cyt_data = data[,.(cyt_score, ligand)]
+# # rank the genes
+# ligand_scores = cyt_data[order(cyt_data$cyt_score, decreasing = TRUE), ]
+# # ligand_scores = ligand_scores[, .(cyt_score = max(cyt_score, na.rm = TRUE)), by = ligand]
+# rankings = ligand_scores$cyt_score
+# names(rankings) = make.unique(ligand_scores$ligand)
+# ## Run GSEA 
+# GSEAres <- fgsea(pathways = gene_sets, 
+#                  stats = rankings,
+#                  scoreType = 'std', 
+#                  minSize = 10,
+#                  maxSize = 50,
+#                  nproc = 1) 
+# # plot
+# fgsea_df <- GSEAres %>%
+#   arrange(NES) %>%
+#   mutate(
+#     pathway = factor(pathway, levels = pathway),  # Keep order
+#     significant = padj < 0.25                     # TRUE/FALSE significance
+#   )
+# 
+# 
+# p1 = ggplot(fgsea_df, aes(x = NES, y = pathway, fill = significant)) +
+#   geom_col() +
+#   scale_fill_manual(values = c("TRUE" = "springgreen3", "FALSE" = "deeppink")) +
+#   geom_vline(xintercept = 0, color = "black", linetype = "dashed") +
+#   labs(title = "Ligands in cytoplasm - GSEA",
+#        x = "Normalized Enrichment Score (NES)",
+#        y = "Pathway",
+#        fill = "P padj < 0.25") +
+#   theme_minimal(base_size = 14)
+# 
+# ##################################### Receptor - GO enrichment in the cytoplasm ##################################### 
+# cyt_data = data[,.(cyt_score, receptor)]
+# # rank the genes
+# receptor_scores = cyt_data[order(cyt_data$cyt_score, decreasing = TRUE), ]
+# # receptor_scores = receptor_scores[, .(score = max(cyt_score, na.rm = TRUE)), by = receptor]
+# rankings = receptor_scores$cyt_score
+# names(rankings) = make.unique(receptor_scores$receptor)
+# ## Run GSEA 
+# GSEAres <- fgsea(pathways = gene_sets, # List of gene sets to check
+#                  stats = rankings,
+#                  scoreType = 'std', # in this case we have both pos and neg rankings. if only pos or neg, set to 'pos', 'neg'
+#                  minSize = 10,
+#                  maxSize = 500,
+#                  nproc = 1) 
+# # plot
+# fgsea_df <- GSEAres %>%
+#   arrange(NES) %>%
+#   mutate(
+#     pathway = factor(pathway, levels = pathway),  # Keep order
+#     significant = padj < 0.25                    # TRUE/FALSE significance
+#   )
+# p2 = ggplot(fgsea_df, aes(x = NES, y = pathway, fill = significant)) +
+#   geom_col() +
+#   scale_fill_manual(values = c("TRUE" = "springgreen3", "FALSE" = "deeppink")) +
+#   geom_vline(xintercept = 0, color = "black", linetype = "dashed") +
+#   labs(title = "Receptors in cytoplasm - GSEA",
+#        x = "Normalized Enrichment Score (NES)",
+#        y = "Pathway",
+#        fill = "P padj < 0.25") +
+#   theme_minimal(base_size = 14)
+# 
+# ##################################### Ligand - GO enrichment in the nucleus ##################################### 
+# nuc_data = data[,.(nuc_score, ligand)]
+# # rank the genes
+# ligand_scores = nuc_data[order(nuc_data$nuc_score, decreasing = TRUE), ]
+# # ligand_scores = ligand_scores[, .(score = max(nuc_score, na.rm = TRUE)), by = ligand]
+# rankings = ligand_scores$nuc_score
+# names(rankings) = make.unique(ligand_scores$ligand)
+# ## Run GSEA 
+# GSEAres <- fgsea(pathways = gene_sets, # List of gene sets to check
+#                  stats = rankings,
+#                  scoreType = 'std', # in this case we have both pos and neg rankings. if only pos or neg, set to 'pos', 'neg'
+#                  minSize = 10,
+#                  maxSize = 500,
+#                  nproc = 1) 
+# # plot
+# fgsea_df <- GSEAres %>%
+#   arrange(NES) %>%
+#   mutate(
+#     pathway = factor(pathway, levels = pathway),  # Keep order
+#     significant = padj < 0.25                    # TRUE/FALSE significance
+#   )
+# p3 = ggplot(fgsea_df, aes(x = NES, y = pathway, fill = significant)) +
+#   geom_col() +
+#   scale_fill_manual(values = c("TRUE" = "springgreen3", "FALSE" = "deeppink")) +
+#   geom_vline(xintercept = 0, color = "black", linetype = "dashed") +
+#   labs(title = "Ligands in nucleus - GSEA",
+#        x = "Normalized Enrichment Score (NES)",
+#        y = "Pathway",
+#        fill = "P padj < 0.25") +
+#   theme_minimal(base_size = 14)
+# 
+# ##################################### Receptor - GO enrichment in the nucleus ##################################### 
+# nuc_data = data[,.(nuc_score, receptor)]
+# # rank the genes
+# receptor_scores = nuc_data[order(nuc_data$nuc_score, decreasing = TRUE), ]
+# # receptor_scores = receptor_scores[, .(score = max(nuc_score, na.rm = TRUE)), by = receptor]
+# rankings = receptor_scores$nuc_score
+# names(rankings) = make.unique(receptor_scores$receptor)
+# ## Run GSEA 
+# GSEAres <- fgsea(pathways = gene_sets, # List of gene sets to check
+#                  stats = rankings,
+#                  scoreType = 'std', # in this case we have both pos and neg rankings. if only pos or neg, set to 'pos', 'neg'
+#                  minSize = 10,
+#                  maxSize = 500,
+#                  nproc = 1) 
+# # plot
+# fgsea_df <- GSEAres %>%
+#   arrange(NES) %>%
+#   mutate(
+#     pathway = factor(pathway, levels = pathway),  # Keep order
+#     significant = padj < 0.25                     # TRUE/FALSE significance
+#   )
+# p4 = ggplot(fgsea_df, aes(x = NES, y = pathway, fill = significant)) +
+#   geom_col() +
+#   scale_fill_manual(values = c("TRUE" = "springgreen3", "FALSE" = "deeppink")) +
+#   geom_vline(xintercept = 0, color = "black", linetype = "dashed") +
+#   labs(title = "Receptors in nucleus - GSEA",
+#        x = "Normalized Enrichment Score (NES)",
+#        y = "Pathway",
+#        fill = "P padj < 0.25") +
+#   theme_minimal(base_size = 14)
+# 
+# ggarrange(p1,p2,p3,p4)
+
+
+# Clusterprofiler
+# choose location-relevant sets: GO:CC (+ optional localization/trafficking GO:BP)
+gs_cc <- setDT(msigdbr(species = "Homo sapiens", category="C5", subcategory="GO:CC"))
+TERM2GENE  <- gs_cc[,.(term = gs_name, gene = gene_symbol)]
+unique_genes_df <- read_csv("data/processed/training_data_062325.csv")
+universe_genes <- c(unique_genes_df$ligand, unique_genes_df$receptor)%>%unique()
+
+run_ora <- function(detected_genes, universe_genes, TERM2GENE,
+                    minGS = 10, maxGS = 500, p_adj = "BH") {
+  detected_genes <- intersect(unique(detected_genes), universe_genes)
+  # if (length(detected_genes) < 5) {
+  #   return(data.table())  
+  # }
+  ora <- enricher(gene          = detected_genes,
+                  TERM2GENE     = TERM2GENE,
+                  universe      = universe_genes,
+                  pAdjustMethod = p_adj,
+                  minGSSize     = minGS,
+                  maxGSSize     = maxGS)
+  as.data.table(ora@result)[order(p.adjust)]
+}
+
+options(enrichplot.colours = c("#1B9E77","#D81B60"))
+
+plot_ora <- function(ora_dt, top = 15, title = "") {
+  if (!nrow(ora_dt)) return(invisible(NULL))
+  ora_obj <- new("enrichResult", result = as.data.frame(ora_dt))
+  barplot(ora_obj, showCategory = top) + ggtitle(title) 
+}
+
+pretty_term <- function(x) {
+  x <- sub("^(GO(CC|BP|MF)|HALLMARK|REACTOME|KEGG|WP|PID)_", "", x)
+  x <- gsub("_", " ", x)
+  tools::toTitleCase(tolower(x))
+}
+
+res_lig_cyt <- run_ora(
+  detected_genes = as.vector(data[cyt_score>0,ligand]),
+  universe_genes = universe_genes,   
+  TERM2GENE      = TERM2GENE
+)
+
+res_lig_cyt$Description = pretty_term(res_lig_cyt$Description)
+
+p1 = plot_ora(res_lig_cyt, top = 15, title = "Ligands - Cytoplasm") + theme_classic() + theme(
+      panel.grid.major.y = element_blank(),
+      axis.text.y = element_text(
+        margin = margin(r = 8),     
+        lineheight = 0.7,
+        size = 14
+      ))
+
+res_rec_cyt <- run_ora(
+  detected_genes = as.vector(data[cyt_score>0,receptor]),
+  universe_genes = universe_genes,   
+  TERM2GENE      = TERM2GENE
+)
+
+res_rec_cyt$Description = pretty_term(res_rec_cyt$Description)
+
+p2 = plot_ora(res_rec_cyt, top = 15, title = "Receptors - Cytoplasm") + theme_classic() + theme(
+      panel.grid.major.y = element_blank(),
+      axis.text.y = element_text(
+        margin = margin(r = 8),     
+        lineheight = 0.7,
+        size = 14
+      )) 
+
+res_lig_nuc <- run_ora(
+  detected_genes = as.vector(data[nuc_score>0,ligand]),
+  universe_genes = universe_genes,   
+  TERM2GENE      = TERM2GENE
+)
+
+res_lig_nuc$Description = pretty_term(res_lig_nuc$Description)
+
+p3 = plot_ora(res_lig_nuc, top = 15, title = "Ligands - Nucleus")+ theme_classic() + theme(
+      panel.grid.major.y = element_blank(),
+      axis.text.y = element_text(
+        margin = margin(r = 8),    
+        lineheight = 0.7,
+        size = 14
+      ))
+
+res_rec_nuc <- run_ora(
+  detected_genes = as.vector(data[nuc_score>0,receptor]),
+  universe_genes = universe_genes,   
+  TERM2GENE      = TERM2GENE
+)
+
+res_rec_nuc$Description = pretty_term(res_rec_nuc$Description)
+
+p4 = plot_ora(res_rec_nuc, top = 15, title = "Receptors - Nucleus") + theme_classic() + theme(
+      panel.grid.major.y = element_blank(),
+      axis.text.y = element_text(
+        margin = margin(r = 8),    
+        lineheight = 0.7,
+       size = 14
+      ))
+
+ggarrange(p1,p2,p3,p4)
+
+# helper to normalize text sizes on any plot
+fix_fonts <- function(p, base = 11, y = 9, x = 9, title = 12){
+  p + theme(
+    text = element_text(size = base),
+    axis.text.y = element_text(size = y),
+    axis.text.x = element_text(size = x),
+    plot.title  = element_text(size = title, face = "bold")
+  )
+}
+
+p1 <- fix_fonts(p1)
+p2 <- fix_fonts(p2)
+p3 <- fix_fonts(p3)
+p4 <- fix_fonts(p4) 
+
+# if you use patchwork:
+combined <- (p1 | p2) / (p3 | p4) &
+  theme(                       # applies to ALL subplots uniformly
+    text = element_text(size = 12),
+    axis.text.y = element_text(size = 12)
+  )
+combined
+
+ggsave('data/results/Final_Figures/Final_figure1/overlap_test.pdf', height = 15, width = 15)
+
+plot_ora_tree <- function(ora_dt, top = 15, title = "") {
+  if (!nrow(ora_dt)) return(invisible(NULL))
+
+  # build enrichResult object
+  ora_obj <- new("enrichResult", result = as.data.frame(ora_dt))
+
+  # keep top categories (by adjusted p)
+  if (!is.null(ora_obj@result) && nrow(ora_obj@result) > top) {
+    keep_ids <- head(ora_obj@result[order(ora_obj@result$p.adjust), "ID"], top)
+    ora_obj@result <- ora_obj@result[ora_obj@result$ID %in% keep_ids, , drop = FALSE]
+  }
+
+  # compute pairwise term similarity then treeplot
+  # requires enrichplot >= 1.20 and DOSE loaded as a dep
+  if (requireNamespace("enrichplot", quietly = TRUE)) {
+    ora_sim <- enrichplot::pairwise_termsim(ora_obj)
+    if ("treeplot" %in% getNamespaceExports("enrichplot")) {
+      p <- enrichplot::treeplot(ora_sim, showCategory = top, fontsize = 10,
+                                extend = 1,
+                                label_format_tiplab = 30,
+                                label_format_cladelab = 20,
+                                leave_fontsize = 4,
+                                clade_fontsize = 4,
+                                offset =8,
+                                legend_n = 0,
+                                geneClusterPanel = "dotplot",
+                                group_color = c("#f27042",
+                                                "#fcda83", "#b62e48", 
+                                                "#7ecba4", "#4965b0"
+                                                )) + ggtitle(title)
+      return(p)
+    } else {
+      # fallback: enrichment map if treeplot not available
+      p <- enrichplot::emapplot(ora_sim, showCategory = top) + ggtitle(paste0(title, " (emap)"))
+      return(p)
+    }
+  } else {
+    stop("Package 'enrichplot' is required for tree/emap plots. Install with BiocManager::install('enrichplot').")
+  }
+}
+
+# Suppose you have four enrichment results
+padj_min <- min(c(res_lig_cyt$p.adjust,
+                  res_lig_nuc$p.adjust,
+                  res_rec_cyt$p.adjust,
+                  res_rec_nuc$p.adjust))
+
+padj_max <- max(c(res_lig_cyt$p.adjust,
+                  res_lig_nuc$p.adjust,
+                  res_rec_cyt$p.adjust,
+                  res_rec_nuc$p.adjust))
+
+gene_ratio_min <- 0
+gene_ratio_max <- max(c(res_lig_cyt$Count,
+                        res_lig_nuc$Count,
+                        res_rec_cyt$Count,
+                        res_rec_nuc$Count))
+
+
+p1 = plot_ora_tree(res_lig_cyt, top = 17, title = "A. Ligands - Cytoplasm") +
+  scale_color_gradientn(
+    colors = c("#1B9E77", "#1B9E77","#D81B60", "#D81B60"),  # repeated colors
+    values = scales::rescale(c(0, 0.05, 0.05, 1)),           # cutoff at 0.05
+    limits = c(0, 1),                                        # full range
+    name = "FDR-adjusted p-value"
+  )+ 
+      scale_size_continuous(limits = c(gene_ratio_min, gene_ratio_max), name = "Number of genes") +
+      theme(legend.position = "none")
+p2 = plot_ora_tree(res_lig_nuc, top = 17, title = "B. Ligands - Nucleus") + 
+  scale_color_gradientn(
+    colors = c("#1B9E77", "#1B9E77","#D81B60", "#D81B60"),  # repeated colors
+    values = scales::rescale(c(0, 0.05, 0.05, 1)),           # cutoff at 0.05
+    limits = c(0, 1),                                        # full range
+    name = "FDR-adjusted p-value"
+  ) + 
+  scale_size_continuous(limits = c(gene_ratio_min, gene_ratio_max), name = "Number of genes") +
+  theme(legend.position = "none")
+p3 = plot_ora_tree(res_rec_cyt, top = 17, title = "C. Receptors - Cytoplasm") + 
+  scale_color_gradientn(
+    colors = c("#1B9E77", "#1B9E77","#D81B60", "#D81B60"),  # repeated colors
+    values = scales::rescale(c(0, 0.05, 0.05, 1)),           # cutoff at 0.05
+    limits = c(0, 1),                                        # full range
+    name = "FDR-adjusted p-value"
+  ) + 
+  scale_size_continuous(limits = c(gene_ratio_min, gene_ratio_max), name = "Number of genes") +
+  theme(legend.position = "none")
+p4 = plot_ora_tree(res_rec_nuc, top = 17, title = "D. Receptors - Nucleus") + 
+  scale_color_gradientn(
+    colors = c("#1B9E77", "#1B9E77","#D81B60", "#D81B60"),  # repeated colors
+    values = scales::rescale(c(0, 0.05, 0.05, 1)),           # cutoff at 0.05
+    limits = c(0, 1),                                        # full range
+    name = "FDR-adjusted p-value"
+  ) + 
+  scale_size_continuous(limits = c(gene_ratio_min, gene_ratio_max), name = "Number of genes") +
+  theme(legend.position = "none")
+
+combined <- (p1 | p2) / (p3 | p4) &
+  theme(                       # applies to ALL subplots uniformly
+    text = element_text(size = 20),
+    axis.text.y = element_text(size = 0),
+    axis.text.x = element_text(size = 0)
+  )
+combined
+ggsave('data/results/Final_Figures/Final_figure1/overlap_test_tree.pdf', height = 15, width = 20)
+
+p1 + theme(legend.position = "bottom")
+ggsave('data/results/Final_Figures/Final_figure1/overlap_test_tree_legend.pdf', height = 15, width = 20)
+
+
+```
+
+## Log2FoldChange differences in the LR communication score of detected between the various regions of the cell
+
+```{r}
+#| message: false
+#| warning: false
+#| include: true
+data$color = case_when(
+  data$cell_score != 0 & data$nuc_score == 0 & data$cyt_score == 0 ~ "cell",
+  data$cell_score != 0 & data$nuc_score == 0 & data$cyt_score != 0 ~ "cell; cytoplasm",
+  data$cell_score != 0 & data$nuc_score != 0 & data$cyt_score == 0 ~ "cell; nucleus",
+  data$cell_score != 0 & data$nuc_score != 0 & data$cyt_score != 0 ~ "cell; cytoplasm; nucleus",
+  .default = "NS"
+)
+  
+data$color = factor(data$color, levels = c(
+  "cell",
+  "cell; cytoplasm",
+  "cell; nucleus",
+  "cell; cytoplasm; nucleus"
+))
+# cyt_score - nuc_score
+data$diff =  log2(data$cyt_score + 1e-6) -  log2(data$nuc_score + 1e-6)
+
+library(scales)
+
+p = ggplot(data, aes(x = cell_score, y = diff, color = color)) +
+  geom_point(size = 1.8) +
+  scale_x_log10(
+    breaks = c(1e-6, 1e-4, 1e-2),
+    labels = scales::trans_format("log10", math_format(10^.x))
+  ) +
+  labs(
+    x = "Interaction score in the cell (log scale)",
+    y = "Log2FC of interaction score \n (Cytoplasm - Nucleus)",
+    color = "Localisation"
+  ) +
+  scale_color_manual(values = c("#a31044", "#f69d5d", "#c8e7a5", "#4a66ae"),
+                     guide = guide_legend(nrow = 2, byrow = TRUE)) +
+  theme_classic(base_size = 18) +
+  theme(
+    legend.position = "bottom",
+    legend.text = element_text(size = 30),
+    legend.title = element_text(size = 30),
+    axis.text.x = element_text(size = 22, angle = 0, hjust = 1),
+    axis.text.y = element_text(size = 22),
+    axis.title = element_text(size = 30),
+    axis.line = element_line(size = 0.8)
+  ) + coord_cartesian(xlim = c(1e-6, 1e-2))
+
+ggsave('data/results/Final_Figures/Final_figure1/ma_plot.pdf', width = 12, height = 8)
+  
+```
+
+## Linear projection of CellChat-derived communication score components using PCA. Bottom: PCA plot colored by the hill function of expression (P1 component of CellChat) across the three regions.
+
+```{r}
+#| message: false
+#| warning: false
+#| include: true
+lr_df <- read_csv("data/processed/archive/lung_cancer/lr_df.csv")
+results <- readRDS("data/processed/archive/cellchat/lung_hig_res.rds")
+
+formula_parts = lapply(results, function (data) {
+  P1_vector = c()
+  P2_vector = c()
+  P3_vector = c()
+  P4_vector = c()
+  P.spatial_vector = c()
+  for (i in 1:nrow(lr_df)){
+  P1_vector = append(P1_vector, data@net[["P1"]][lr_df$source[i], lr_df$target[i], lr_df$interaction_name[i]])
+  P2_vector = append(P2_vector, data@net[["P2"]][lr_df$source[i], lr_df$target[i], lr_df$interaction_name[i]])
+  P3_vector = append(P3_vector, data@net[["P3"]][lr_df$source[i], lr_df$target[i], lr_df$interaction_name[i]])
+  P4_vector = append(P4_vector, data@net[["P4"]][lr_df$source[i], lr_df$target[i], lr_df$interaction_name[i]])
+  P.spatial_vector = append(P.spatial_vector, data@net[["P.spatial"]][lr_df$source[i], lr_df$target[i], lr_df$interaction_name[i]])
+  }
+  formula_list = list(P1_vector, P2_vector, P3_vector, P4_vector, P.spatial_vector)
+  return(formula_list)
+})
+
+names(formula_parts) = c("cell", "cytoplasm", "nucleus")
+
+formula_df = as.data.frame(cbind(do.call(cbind, formula_parts[[1]]), do.call(cbind, formula_parts[[2]]), do.call(cbind, formula_parts[[3]])))
+colnames(formula_df) = unlist(lapply(list("cell", "cytoplasm", "nucleus"), function(i){c(paste0(i,"_",'P1_formula'),paste0(i,"_",'P2_formula'),                                                                            paste0(i,"_",'P3_formula'),                                                                            paste0(i,"_",'P4_formula'),                                                                            paste0(i,"_",'P.spatial_formula')
+)}))
+# remove columns with constant values. They do nothing
+formula_df = formula_df[,-c(2,4)]
+# retain unique interactions
+formula_df$venn_relation = lr_df$venn_relation
+formula_df$interaction = lr_df$interaction
+formula_df = formula_df[!duplicated(formula_df$interaction),]
+pc = prcomp(formula_df[,-c(14,15)],
+                   center = TRUE,
+                  scale = TRUE)
+
+ formula_df$venn_relation = case_when(
+  formula_df$venn_relation == 'cyt' ~ "cytoplasm",
+  formula_df$venn_relation == 'nuc' ~ "nucleus",
+  formula_df$venn_relation == 'cell + cyt' ~ "cell; cytoplasm",
+  formula_df$venn_relation == 'cyt+ nuc' ~ "cytoplasm; nucleus",
+  formula_df$venn_relation == 'cell + nuc' ~ "cell; nucleus",
+  formula_df$venn_relation == 'cell + cyt + nuc' ~ "cell; cytoplasm; nucleus",
+  .default = "cell"
+)
+
+# Are the different venn relations clustering? 
+pc_df = as.data.frame(pc[["x"]])
+pc_df$Compartment = formula_df$venn_relation
+
+ggplot(pc_df, aes(PC1, PC2, color = Compartment)) + 
+  geom_point(size = 0.5) +
+  theme_classic() +
+  geom_polygon(stat = "ellipse", aes(fill = Compartment), alpha = 0.05) +
+  ylim(y = c(-3, 10)) + 
+  xlim(-10,10) +
+  scale_color_manual(values = c("#a31044", "#f69d5d", "#c8e7a5", "#4a66ae","#db5142","#70aca8","#ebf29f"),
+                     guide = guide_legend(nrow = 3, byrow = TRUE)) + 
+  scale_fill_manual(values = c("#a31044", "#f69d5d", "#c8e7a5", "#4a66ae","#db5142","#70aca8","#ebf29f")) +
+  labs(x = "PC1 (Explained variance: 43.7%)",
+        y = "PC2 (Explained variance: 20%)") +
+  theme_classic(base_size = 18) +
+  theme(
+    legend.position = "bottom",
+    legend.text = element_text(size = 30),
+    legend.title = element_text(size = 30),
+    axis.text.x = element_text(size = 22, angle = 0, hjust = 1),
+    axis.text.y = element_text(size = 22),
+    axis.title = element_text(size = 30)
+  )
+ggsave("data/results/Final_Figures/Final_figure1/pca_plot.pdf", width = 12, height = 8)
+
+
+pc_df$cell_expression = ifelse(formula_df$cell_P1_formula == 0, 1e-10, formula_df$cell_P1_formula)
+# color by product of expression 
+p1= ggplot(pc_df, aes(PC1, PC2, color = cell_expression)) + 
+  geom_point(size = 1, alpha = 0.7) +
+  theme_classic() +
+  ylim(y = c(-3, 10)) + 
+  xlim(-10,10) +
+  scale_color_gradient(low="#fadc85",
+                     high="#a31044", space ="Lab", trans = "log10",
+    breaks = c(1e-7, 1e-5, 1e-3),
+  labels = c(expression(10^-7), expression(10^-5), expression(10^-3))
+)+
+  labs(x = "PC1 (Explained variance: 43.7%)",
+        y = "PC2 (Explained variance: 20%)"
+       ) +
+  theme(
+    legend.position = "right",
+    legend.text = element_text(size = 20),
+    axis.text = element_text(size = 20),
+    axis.title = element_text(size = 20),
+    panel.grid.minor = element_blank(),
+    legend.title = element_text(size = 20)
+  ) +
+  guides(color=guide_colorbar(title="LR Expression(log10)"))
+
+pc_df$cyt_expression = ifelse(formula_df$cytoplasm_P1_formula == 0, 1e-10, formula_df$cytoplasm_P1_formula)
+p2 = ggplot(pc_df, aes(PC1, PC2, color = cyt_expression)) + 
+  geom_point(size = 1, alpha = 0.7) +
+  theme_classic() +
+  ylim(y = c(-3, 10)) + 
+  xlim(-10,10) +
+  scale_color_gradient(low="#fadc85",
+                     high="#a31044", space ="Lab", trans = "log10") +
+  labs(x = "PC1 (Explained variance: 43.7%)",
+        y = "PC2 (Explained variance: 20%)"
+       ) +
+  theme(
+    legend.position = "right",
+    legend.text = element_text(size = 20),
+    axis.text = element_text(size = 20),
+    axis.title = element_text(size = 20),
+    panel.grid.minor = element_blank(),
+    legend.title = element_text(size = 20)
+  ) +
+  guides(color=guide_colorbar(title="LR Expression(log10)"))
+
+pc_df$nuc_expression = ifelse(formula_df$nucleus_P1_formula == 0, 1e-10, formula_df$nucleus_P1_formula)
+p3 = ggplot(pc_df, aes(PC1, PC2, color = nuc_expression)) + 
+  geom_point(size = 1, alpha = 0.7) +
+  theme_classic() +
+  ylim(y = c(-3, 10)) + 
+  xlim(-10,10) +
+  scale_color_gradient(low="#fadc85",
+                     high="#a31044", space ="Lab", trans = "log10") +
+  labs(x = "PC1 (Explained variance: 43.7%)",
+        y = "PC2 (Explained variance: 20%)"
+       ) +
+  theme(
+    legend.position = "right",
+    legend.text = element_text(size = 20),
+    axis.text = element_text(size = 20),
+    axis.title = element_text(size = 20),
+    panel.grid.minor = element_blank(),
+    legend.title = element_text(size = 20)
+  ) +
+  guides(color=guide_colorbar(title="LR Expression(log10)"))
+ggarrange(p1,p2,p3, ncol = 3, common.legend = TRUE, legend = "none")
+
+ggsave("data/results/Final_Figures/Final_figure1/pca_plot_expr.pdf", width = 20)
+
+legend <- get_legend(
+  p1 +
+    guides(color = guide_colorbar(
+      title = "LR Expression (log10)",
+      title.position = "bottom",
+      title.hjust = 0.5,
+      barwidth = 15,
+      barheight = 1,
+      direction = "horizontal"
+    ))
+)
+
+
+ggsave("data/results/Final_Figures/Final_figure1/pca_legend.pdf", legend, width=4, height=1)
+
+```

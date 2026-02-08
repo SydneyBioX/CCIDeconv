@@ -1,0 +1,511 @@
+---
+title: "Figure 2"
+author: "rshreej"
+date: "`r format(Sys.time(), '%B %d, %Y')`"
+format: 
+  html:
+    toc: true
+    toc-depth: 2
+    toc-expand: true
+    number-sections: true
+    theme: united
+    highlight: tango
+    code-fold: true
+    code-tools: true
+    embed-resources: true
+editor: 
+  markdown: 
+    wrap: 72
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r}
+knitr::opts_knit$set(root.dir = here::here())
+```
+
+```{r}
+#| message: false
+#| include: false
+#| warning: false
+library(data.table)
+library(tidyverse)
+library(circlize)
+library(ggvenn)
+library(cowplot)
+library(pheatmap)
+library(cowplot)
+library(ComplexHeatmap)
+library(fgsea)
+library(msigdbr)
+library(ggpubr)
+library(clusterProfiler)
+library(enrichplot) 
+library(patchwork)
+library(ggbiplot)
+library(reshape2)
+library(ThemePark)
+```
+
+
+```{r}
+theme_set(
+  theme_classic(base_size = 22) +
+    theme(
+      axis.text = element_text(size = 20),
+      axis.title = element_text(size = 22),
+      legend.text = element_text(size = 22),
+      legend.title = element_text(size = 22),
+      plot.title = element_text(size = 22, hjust = 0.5)
+    )
+)
+```
+
+# Training the lung cancer dataset with 255 varying combinations of the 8 other datasets to check if the dataset choice affects the model stability
+
+## Number of LR pairs correctly classified when training the lung cancer dataset on 255 combinations of the 8 training datasets (raw counts on the left, percentages on the right)
+
+```{r}
+#| message: false
+#| include: true
+#| warning: false
+dir = "data/processed/scores_training/classification_raw"
+files = list.files(dir)[1:9]
+file_list = list()
+
+for (i in files){
+  # read the files and store in a list
+  dat <- fread(file.path(dir, i))
+  dat$correct = ifelse(dat$pred == dat$true, 1, 0)
+  x = nrow(dat)/255
+  dat$id = rep(1:x, 255)
+  data = dcast(dat, id ~ group, fun.aggregate = NULL, value.var = "correct")
+  data$sample = sub("classification_spe_list_(.*)_cellchat\\.csv", "\\1", i)
+  file_list[[i]] = data
+}
+
+prediction = setDT(do.call(rbind, file_list))
+rownames(prediction) = 1:nrow(prediction)
+col = prediction[, lapply(.SD, sum), by = sample, .SDcols = c(2:256)]
+percent <- prediction[, lapply(.SD, function(x) sum(x) *100 / .N), 
+                      by = sample, .SDcols = 2:256]
+
+counts <- prediction[, .N, by = sample]
+counts$sample <- factor(counts$sample,
+  levels = unique(counts$sample),
+  labels = c("Brain (AD)",
+             "Brain (GL)",
+             "Breast Cancer",
+             "Lung",
+             "Lung (High-Res)",
+             "Lymph Node",
+             "Ovarian",
+             "Pancreas",
+             "Skin")
+)
+
+
+colsums = melt(col, id.vars = "sample")
+percent = melt(percent, id.vars = "sample")
+
+
+percent$sample <- factor(percent$sample,
+  levels = unique(percent$sample),
+  labels = c("Brain (AD)",
+             "Brain (GL)",
+             "Breast Cancer",
+             "Lung",
+             "Lung (High-Res)",
+             "Lymph Node",
+             "Ovarian",
+             "Pancreas",
+             "Skin")
+)
+
+p0 = ggplot(percent, aes(x = sample, y = value)) +
+  # geom_violin(fill = "#ccebc5", width = 2) + 
+  geom_boxplot(fill = "#ccebc5", width = 0.5, outlier.size = 0.5) + 
+  # geom_jitter(width = 0.1, alpha = 0.3, size = 1) + 
+  geom_text(
+    data = counts,
+    aes(x = sample, y = max(percent$value)-10, label = paste0("N=", N)),
+    inherit.aes = FALSE,
+    color = "#B43757",
+    size = 5,
+    angle = 90,
+    hjust = 0,
+    vjust =0
+  ) + 
+  labs(x = "", y = "% LR pairs classified correctly")  + 
+  theme_classic(base_size = 18) +
+    theme(
+      axis.text = element_text(size = 16),
+      axis.title = element_text(size = 18),
+      legend.text = element_text(size = 18),
+      legend.title = element_text(size = 18),
+      plot.title = element_text(size = 18, hjust = 0.5),
+      axis.text.x = element_text(angle = 45,  hjust = 1, vjust = 1)
+    )
+
+
+# setDT(percent)
+# percent <- percent[, .(mean_value = mean(value)), by = sample]
+
+p1 <- ggplot(percent, aes(x = sample, y = value)) +
+  stat_summary(fun = mean, geom = "bar", width = 0.7, fill = "#bebadb") +
+  stat_summary(fun.data = mean_sdl, fun.args = list(mult = 1),
+               geom = "errorbar", width = 0.2, linewidth = 0.6) +
+  # geom_jitter(width = 0.001, size = 2, alpha = 0.8, color = "black")  +
+  labs(x = "", y = "Mean % of correct classifications \n across the different combinations") +
+  theme_classic(base_size = 18) +
+    theme(
+      axis.text = element_text(size = 16),
+      axis.title = element_text(size = 18),
+      legend.text = element_text(size = 18),
+      legend.title = element_text(size = 18),
+      plot.title = element_text(size = 18, hjust = 0.5),
+      axis.text.x = element_text(angle = 45,  hjust = 1, vjust = 1)
+    )
+
+ggarrange (p1, p0, common.legend = F)
+ggsave("data/results/Final_Figures/Final_figure3/counts_plot.pdf", width = 8)
+```
+
+Note: 
+Barplot = “How good is each dataset on average?” Stability 
+Histogram = “How are individual LR pairs spread out in terms of classification performance?”
+
+## Number of times each LR pair was classified correctly 
+```{r}
+#| message: false
+#| include: true
+#| warning: false
+
+# id is not unique
+row <- prediction[, .(value = rowSums(.SD)), .SDcols = 2:256]
+row$percent <- row$value * 100 / 255
+row$sample = prediction$sample  
+p0 = ggplot(row, aes(x = value)) +
+  geom_histogram(aes(y = after_stat(count / sum(count))),
+                 binwidth = 5, fill = "#fb8073", color = "#fb8073") +
+  scale_y_continuous(labels = scales::percent) +
+  # scale_x_continuous(breaks = seq(0, 100, by = 10)) +
+  labs(x = "Number of Combinations", 
+       y = "Proportion (%) of LR pairs classified correctly") +
+  theme_classic(base_size = 18) +
+    theme(
+      axis.text = element_text(size = 14),
+      axis.title = element_text(size = 18),
+      legend.text = element_text(size = 18),
+      legend.title = element_text(size = 18),
+      plot.title = element_text(size = 18, hjust = 0.5),
+      axis.text.x = element_text(angle = 45,  hjust = 1, vjust = 1)
+    )
+
+p1 = ggplot(row, aes(x = "", y = value)) +
+  geom_violin(fill = "#ffffb4", width = 0.6) + 
+  geom_boxplot(color = "black", fill = "white", width = 0.05) + 
+  theme(
+    axis.text.x = element_blank(),
+    axis.ticks.x = element_blank()
+  )  + 
+  labs(x = "Correctly classified LR pairs", y = "Number of combinations") +
+  theme_classic(base_size = 18) +
+    theme(
+      axis.text = element_text(size = 16),
+      axis.title = element_text(size = 18),
+      legend.text = element_text(size = 18),
+      legend.title = element_text(size = 18),
+      plot.title = element_text(size = 18, hjust = 0.5),
+      axis.ticks.x = element_blank()
+    )
+ggarrange (p0, p1, align = "hv")
+ggsave("data/results/Final_Figures/Final_figure3/lr_counts_plot.pdf", width = 8)
+
+row$sample <- factor(row$sample,
+  levels = unique(row$sample),
+  labels = c("Brain (AD)",
+             "Brain (GL)",
+             "Breast Cancer",
+             "Lung",
+             "Lung (High-Res)",
+             "Lymph Node",
+             "Ovarian",
+             "Pancreas",
+             "Skin")
+)
+
+colors = c("#f57b6c", "#d4dda6", "#78c2e3", "#f2a8da", "#f3b773", "#84c3b7", "#fbe79e", "#b8aeea", "#88d7da" )
+
+ggplot(row, aes(x = sample, y = percent, fill = sample)) +
+  geom_violin(width = 0.6) + 
+  geom_boxplot(color = "black", fill = "white", width = 0.05) + 
+  theme(
+    axis.text.x = element_blank(),
+    axis.ticks.x = element_blank()
+  )  + 
+  labs(x = "", y = "Number of correctly \n classified LR pairs") +
+  scale_fill_manual(values = colors) + 
+  theme_classic(base_size = 18) +
+    theme(
+      axis.text = element_text(size = 16),
+      axis.title = element_text(size = 18),
+      legend.text = element_text(size = 18),
+      legend.title = element_text(size = 18),
+      plot.title = element_text(size = 18, hjust = 0.5),
+      axis.text.x = element_text(angle = 45,  hjust = 1, vjust = 1),
+      legend.position = "None"
+    )
+ggsave("data/results/Final_Figures/Supplementary_figures/counts_plots/lr_box_plot.pdf", width = 8)
+```
+
+# Easy vs hard analysis
+```{r}
+#| message: false
+#| include: true
+#| warning: false
+
+# Easy is LR pairs with greater than 3rd quartile 
+# Intermediate is LR pairs between 2nd and 3rd quartile
+# Hard is LR pairs less than 1st quartile
+
+prediction = setDT(do.call(rbind, file_list))
+rownames(prediction) = 1:nrow(prediction)
+
+# offset the rownames by the number of lr pairs
+offsets <- prediction[, .N, by = sample][
+  , offset := shift(cumsum(N), fill = 0)]
+prediction <- merge(prediction, offsets[, .(sample, offset)], by = "sample")
+prediction[, gid := id + offset]
+# check 
+x = as.integer(rownames(prediction))
+y = prediction$gid
+identical(x,y)
+
+
+row <- prediction[, .(value = rowSums(.SD)), by = gid, .SDcols = 2:256]
+row$percent <- row$value * 100 / 255
+row[, group := fcase(
+  percent > 75,  "Easy",
+  percent < 25,  "Hard",
+  default = "Intermediate"
+)]
+
+# join this with the dataframe of the features
+training_data = read_csv("data/processed/training_data_071025.csv")
+z = as.integer(rownames(training_data))
+identical(y,z)
+data = cbind(row, training_data[,1:38]) 
+
+prop_df <- data[, .N, by = .(lr_pair, group)]
+prop_df[, total := sum(N), by = lr_pair]
+prop_df[, prop := N / total]
+
+# Irrespective of cell type how many LR pairs are always Easy/ hard / intermediate
+# There are 290 unique LR pairs and most of them are always easy to classify (it means that irrespective of celltype or dataset, that LR pairs have been classified 75% of times correctly)
+# count all LR pairs per group
+all_counts <- prop_df[, .N, by = group]
+
+# count only "always" LR pairs per group
+always = prop_df[prop == 1,]
+always_counts <- always[, .N, by = group]
+all_counts$group = factor(all_counts$group, levels = c("Easy", "Intermediate", "Hard"))
+
+p1 <- ggplot(all_counts, aes(x = group, y = N, fill = group)) +
+  geom_col(alpha = 0.6) +  # base bars: all pairs
+  geom_col(data = always_counts, aes(x = group, y = N), 
+           fill = "gray", width = 0.4) +  # overlay: always pairs
+  labs(x = "Group", 
+       y = "Number of LR pairs") + 
+  guides(fill = "none") 
+ggsave('data/results/Final_Figures/Final_figure3/easy_hard.pdf', height = 5)
+
+
+hard_df <- prop_df[group == "Hard"]
+
+p2 = ggplot(hard_df, aes(x = reorder(lr_pair, -prop), y = prop)) +
+  geom_col(fill = "#85d692") +
+  geom_text(aes(label = paste0(N, "/", total)), vjust = 0.5, hjust = 0, size = 6) +
+  coord_flip() +
+  scale_y_continuous(labels = scales::percent) +
+  labs(x = "Hard LR pair", y = "Proportion of hard calls")
+
+ggsave('data/results/Final_Figures/Final_figure3/hard_prop.pdf', width = 10, height = 12)
+```
+## Question is how do I check what is APP_CD74. I think the reason for misclassifiction is because there is no prior information and the nucleus score is zero but was there in all the celltpyes in one particular tissue
+
+## Regression and classification metric across the 255 different trainings
+```{r}
+#| message: false
+#| include: true
+#| warning: false
+class_dir <- "data/processed/scores_training/classification_metrics/"
+
+files = list.files(class_dir)
+file_list = list()
+
+for (i in files){
+  # read the files and store in a list
+  dat <- fread(file.path(class_dir, i))
+  dat$sample = sub("classification_metrics_spe_list_(.*)_cellchat\\.csv", "\\1", i)
+  file_list[[i]] = dat
+}
+
+# join with the metrics with perclass metrics 
+metrics = do.call(rbind, file_list)
+perclass_metrics = fread("data/processed/scores_training/final_classification_metrics.csv")
+colnames(perclass_metrics)[11] = "group"
+perclass_metrics$sample = sub("classification_spe_list_(.*)_cellchat\\.csv$", "\\1", perclass_metrics$dataset)
+perclass_metrics = perclass_metrics[,-c(9,10,12)]
+metrics = metrics[perclass_metrics, on = .(sample, group)]
+metrics_further = metrics
+
+
+# Regression metrics 
+cyt_reg_dir <- "data/processed/scores_training/cyt_metrics"
+nuc_reg_dir <- "data/processed/scores_training/nuc_metrics"
+files = list.files(cyt_reg_dir)
+file_list = list()
+for (i in files){
+  # read the files and store in a list
+  dat <- fread(file.path(cyt_reg_dir, i))
+  dat$sample = sub("cyt_metrics_spe_list_(.*)_cellchat\\.csv", "\\1", i)
+  file_list[[i]] = dat
+}
+cyt_metrics = do.call(rbind, file_list)
+colnames(cyt_metrics)[1:3] = paste0("cyt_",colnames(cyt_metrics)[1:3])
+
+files = list.files(nuc_reg_dir)
+file_list = list()
+for (i in files){
+  # read the files and store in a list
+  dat <- fread(file.path(nuc_reg_dir, i))
+  dat$sample = sub("nuc_metrics_spe_list_(.*)_cellchat\\.csv", "\\1", i)
+  file_list[[i]] = dat
+}
+nuc_metrics = do.call(rbind, file_list)
+colnames(nuc_metrics)[1:3] = paste0("nuc_",colnames(nuc_metrics)[1:3])
+
+# regression_metrics = cyt_metrics[nuc_metrics, on = .(group, sample)]
+# regression_metrics$`cyt_R²` = ifelse(regression_metrics$`cyt_R²`<0, 0, regression_metrics$`cyt_R²`)
+# regression_metrics$`nuc_R²` = ifelse(regression_metrics$`nuc_R²`<0, 0, regression_metrics$`nuc_R²`)
+regression_metrics_further = regression_metrics
+
+regression_metrics = melt(regression_metrics, id.vars = c('sample', "group"), measure.vars = c(1:3, 6:8))
+regression_metrics$facets <- with(regression_metrics,
+  ifelse(variable %in% levels(regression_metrics$variable)[c(1,4)], "R²",
+  ifelse(variable %in% levels(regression_metrics$variable)[c(3,6)], "NRMSE", 'RMSE'))
+)
+
+regression_metrics$facets = factor(regression_metrics$facets, levels = c("R²", "NRMSE", 'RMSE'))
+
+
+
+metrics = metrics_further[regression_metrics_further, on = .(group, sample)]
+combo_metrics = metrics[, c(4,14,15,18,17,20)]
+combo_metrics[ , geometric_mean := abs(roc_auc 
+                                 * (1 - ((cyt_NRMSE + nuc_NRMSE)/2)) 
+                                    * macro_recall 
+                                    * ((`cyt_R²` + `nuc_R²`)/2)
+                                 )**(1/4)]
+
+
+dt = melt(combo_metrics)
+
+dt$variable <- factor(dt$variable,
+  levels = c("roc_auc","macro_recall","cyt_R²","nuc_R²",
+             # "cyt_RMSE","nuc_RMSE",
+             "cyt_NRMSE","nuc_NRMSE","geometric_mean"),
+  labels = c("AUC",
+             "Recall (Macro)",
+             "R² – Cytoplasm",
+             "R² – Nucleus",
+             # "RMSE – Cytoplasm",
+             # "RMSE – Nucleus",
+             "NRMSE – Cytoplasm",
+             "NRMSE – Nucleus",
+             "Composite metric")
+)
+colors = colors = c("#f57b6c", "#d4dda6", "#78c2e3", "#f2a8da", "#f3b773", "#84c3b7", "#fbe79e", "#b8aeea", "#88d7da" )
+ggplot(dt, aes(x = variable, y = value)) +
+  geom_violin(width = 1, aes(fill = variable)) + 
+  scale_fill_manual(values = colors) + 
+  geom_boxplot(color = "black", fill = "white", width = 0.2) +
+  theme(
+    axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1),
+    legend.position = ""
+    ) +
+  labs( x = "", y = "Value") + coord_cartesian(ylim=c(0,1)) 
+ggsave("data/results/Final_Figures/Final_figure3/combo_metrics.pdf", height = 10, width = 8)
+
+
+# AUC split by datasets and the composite metric split by dataset 
+metrics_auc = metrics[, .(roc_auc, sample)]
+ggplot(metrics_auc, aes(x = sample, y = roc_auc)) +
+  geom_violin(width = 1, aes(fill = sample)) + 
+  scale_fill_manual(values = colors) + 
+  geom_boxplot(color = "black", fill = "white", width = 0.2) +
+  theme(
+    axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1),
+    legend.position = ""
+    ) +
+  labs( x = "", y = "Value") + coord_cartesian(ylim=c(0,1))
+
+metrics_auc = metrics_auc %>% group_by(sample) %>% mutate(median = median(roc_auc))
+
+```
+
+## Confusion matrix of the 256 trainings
+```{r}
+#| message: false
+#| include: true
+#| warning: false
+dir = "data/processed/scores_training/classification_raw/correct"
+files = list.files(dir)
+file_list = list()
+
+for (i in files){
+  # read the files and store in a list
+  dat <- fread(file.path(dir, i))
+  file_list[[i]]= dat
+}
+
+confusion = setDT(do.call(rbind, file_list))
+
+cm <- table(Predicted = confusion$pred, Actual = confusion$true)
+
+# from chatgpt
+# confusion[, c("TN","FP","FN","TP") := {
+#   # remove [ and ], then trim leading/trailing spaces
+#   parts <- trimws(gsub("\\[|\\]", "", cm))
+#   
+#   # split into numeric vectors
+#   vals <- strsplit(parts, "\\s+")
+#   
+#   # turn into matrix (rows = datasets, cols = TN FP FN TP)
+#   m <- t(sapply(vals, function(x) as.numeric(x[x != ""])))
+#   
+#   # return as list of columns so := works
+#   split(m, col(m))
+# }]
+# 
+# confusion_matrix = colSums(confusion[, c("TN","FP","FN","TP")]) 
+# 
+# m <- matrix(c(confusion_matrix[1], confusion_matrix[2],
+#                 confusion_matrix[3], confusion_matrix[4]), nrow = 2, byrow = TRUE)
+# colnames(m) <- c("cell", "cytoplasm/nucleus")
+# rownames(m) <- c("cell", "cytoplasm/nucleus")
+  
+dfm <- melt(cm)
+ggplot(dfm, aes(x = Predicted, y = Actual, fill = value)) +
+  geom_tile(color = "black") +
+  geom_text(aes(label = value), size = 5) +
+  scale_fill_gradient(low = "white", high = "#bc80bd", guide = "none") +
+  labs(x = "Predicted", y = "Truth") +
+  theme_minimal(base_size = 14) + scale_y_discrete(limits = rev) +
+  theme(panel.grid.major = element_blank())
+ggsave("data/results/Final_Figures/Final_figure3/confusion.pdf")
+```
+
+
+

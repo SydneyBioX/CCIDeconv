@@ -1,0 +1,185 @@
+---
+title: "processing_datasets"
+author: "Rojashree Jayakumar"
+format: html
+editor: visual
+---
+
+## Processing Datasets
+
+This script is used for processing the nine publicly available 10X Xenium subcellular spatial transcriptomics datasets over a range of different tissue types from human samples
+
+A. Brain (AD),
+
+B. Brain (GL),
+
+C. Breast Cancer,
+
+D. Lung,
+
+E. Lung (High-Res),
+
+F. Lymph Node,
+
+G. Pancreas,
+
+H. Ovarian,
+
+I. Skin.
+
+```{r}
+#| message: false
+#| include: false
+#| warning: false
+knitr::opts_knit$set(root.dir = here::here())
+source("bin/functions.R")
+library(scRNAseq)
+library(data.table)
+```
+
+#### Loading the input paths and gene panels
+
+```{r}
+#| message: false
+#| include: false
+#| warning: false
+
+ddir = "data/spatial_xenium/"
+input_paths = paste0(ddir,list.files(ddir)) # note the file order
+genes_file = paste0(input_paths, "/gene_panel.json")
+
+print("Loaded input file paths and gene panels")
+```
+
+#### Loading and processing reference datasets
+
+-   The reference datasets were downloaded and processed for annotation using singleR package for label transfer
+
+-   The brain_ad reference is downloaded from CellXgene website. https://cellxgene.cziscience.com/collections/7c4552fd-8a6d-4da3-9854-2dfa8baca8bf
+
+-   The brain_gl reference is downloaded from CellXgene website. https://cellxgene.cziscience.com/collections/999f2a15-3d7e-440b-96ae-2c806799c08c
+
+-   The cancer reference is downloaded from CellXgene website. https://cellxgene.cziscience.com/collections/3f7c572c-cd73-4b51-a313-207c7f20f188
+
+-   The lymph node reference is downloaded from the scRNAseq package using the version 2023-12-21 and path lymph_node.
+
+-   The pancreas reference is downloaded from Suerat data.pancreasref.SeuratData Azimuth reference was used.
+
+```{r}
+#| message: false
+#| include: true
+#| warning: false
+
+# Reference datasets
+# brain_ad
+brain_ad_ref = anndata::read_h5ad(file.path("data/references/brain_ad_ref.h5ad"))
+brain_ad_ref = AnnData2SCE(brain_ad_ref)
+n_cells <- nrow(brain_ad_ref)
+set.seed(123)
+subset_idx <- sample(n_cells, size = floor(0.1 * n_cells)) # for speed
+brain_ad_ref <- brain_ad_ref[subset_idx, ]
+brain_ad_ref <- mapping_function(ref_dataset = brain_ad_ref)
+
+# brain_gl
+brain_gl_ref = anndata::read_h5ad(file.path("data/references/brain_gl_ref.h5ad"))
+brain_gl_ref = AnnData2SCE(brain_gl_ref)
+brain_gl_ref <- mapping_function(ref_dataset = brain_gl_ref)
+
+# breast cancer
+cancer_ref = readRDS("data/references/cancer_reference.rds")
+breat_cancer_ref = cancer_ref[,cancer_ref$disease == "breast cancer"]
+
+# lung and lung_high_res
+lung_ref = lung_high_res_ref =  cancer_ref[,cancer_ref$disease == "lung cancer"]
+
+# lympnode
+lymph_node_ref = fetchDataset("he-organs-2020", "2023-12-21", path = 'lymph_node')
+lymph_node_ref <- lymph_node_ref[,!is.na(lymph_node_ref$Cell_type_in_merged_data)]
+
+# ovarian
+ovarian_ref = cancer_ref[,cancer_ref$disease == "ovarian cancer"]
+
+#pancreas
+pancreas_ref = readRDS("data/references/pancreas_ref.rds") # seurat data, no need to log
+pancreas_ref = SingleCellExperiment(pancreas_ref)
+
+#skin
+skin_ref = cancer_ref[,cancer_ref$disease == "melanoma"]
+
+reference_vec = c(brain_ad_ref, brain_gl_ref, breat_cancer_ref, lung_ref, lung_high_res_ref, lymph_node_ref, ovarian_ref, pancreas_ref, skin_ref)
+```
+
+#### Calculating communication scores
+
+```{r}
+log_vec <- rep(TRUE, length(input_paths))
+log_vec[8] <- FALSE
+
+results_list <- Map(
+  process_st_data,
+  input_filepath = input_paths,
+  genes_file     = genes_file,
+  ref            = reference_vec,
+  log            = log_vec
+)
+```
+
+#### Creating the data for training the model
+
+The data used for training contains the cell communication scores
+
+```{r}
+
+train_data_list = list()
+for (i in 1:length(results_list)){
+  comm_scores = files[i]
+  training = Map(function(obj, region){
+  net_arr <- obj@net[["prob"]]
+  net_df <- as.data.frame(as.table(net_arr))
+  names(net_df) <- c("source", "target", "interaction_name", paste0(region, "_score"))
+  pval_df <- as.data.frame(as.table(obj@net[["pval"]]))
+  names(pval_df) <- c("source", "target", "interaction_name", paste0(region, "_pval"))
+  df_scores <- merge(net_df, pval_df, by = intersect(colnames(net_df), colnames(pval_df)))
+  LRsig <- obj@LR$LRsig
+  LRsig_sub <- LRsig[, c(
+    "pathway_name", "annotation", "is_neurotransmitter","interaction_name", "ligand", "ligand.location","ligand.family", "ligand.keyword", "ligand.secreted_type","ligand.transmembrane","receptor", "receptor.family", "receptor.keyword", "receptor.surfaceome_main", "receptor.surfaceome_sub", "receptor.adhesome", "receptor.secreted_type", "receptor.location","receptor.transmembrane"
+  )]
+  df <- merge(df_scores, LRsig_sub, by = "interaction_name")
+  d.spatial <- obj@images$distance * 0.01
+  diag(d.spatial) <- NaN
+  P.spatial <- 1/d.spatial
+  P.spatial[is.na(d.spatial)] <- 0
+  diag(P.spatial) <- max(P.spatial, na.rm = TRUE) 
+  df[[paste0(region,"_pspatial")]] <- mapply(function(l, r) {
+    if (!is.na(l) && !is.na(r) && l %in% rownames(P.spatial) && r %in% colnames(P.spatial)) {
+      P.spatial[l, r]
+    } else {
+      NA
+    }
+  }, df$source, df$target)
+  df[paste0(region, "_P1")] = df[paste0(region, "_score")]/ df[[paste0(region,"_pspatial")]]
+  df[paste0(region, "_P1")][is.na( df[paste0(region, "_P1")])] <- 0
+  df
+}, comm_scores, names(comm_scores))
+  training_dataframe = Reduce(function(x,y) merge(x,y, by = intersect(colnames(x), colnames(y)), all = FALSE), training)
+  training_dataframe$sample = filename
+  train_data_list[[i]] <- training_dataframe
+}
+
+train_data <- data.table::rbindlist(train_data_list, fill = TRUE)
+# add information from HPA database downloaded from https://www.proteinatlas.org/humanproteome/subcellular/data#locations 
+hpa_data = fread("data/subcellular_location.tsv")
+train_data <- merge(train_data, hpa_data[, .(`Gene name`, `Main location`)], 
+            by.x = "ligand", by.y = "Gene name", 
+            all.x = TRUE)
+setnames(df, old = "Main location", new = "ligand.location_hpa")
+train_data <- merge(train_data, hpa_data[, .(`Gene name`, `Main location`)], 
+            by.x = "receptor", by.y = "Gene name", 
+            all.x = TRUE)
+setnames(df, old = "Main location", new = "receptor.location_hpa")
+
+# remove non significant interactions
+train_data = train_data[cell_pval<0.05,]
+fwrite(train_data, "data/raw_data.csv")
+
+```
