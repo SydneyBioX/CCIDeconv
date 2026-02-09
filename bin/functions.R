@@ -166,6 +166,7 @@ computeCommunProb_singlecell <- function(object, type = c("triMean", "truncatedM
   
   Prob <- array(0, dim = c(numCluster,numCluster,nLR))
   Pval <- array(0, dim = c(numCluster,numCluster,nLR))
+  P1 <- array(0, dim = c(numCluster,numCluster,nLR))
   
   set.seed(seed.use)
   permutation <- replicate(nboot, sample.int(nC, size = nC))
@@ -195,6 +196,7 @@ computeCommunProb_singlecell <- function(object, type = c("triMean", "truncatedM
       
       Pnull = P1*P.spatial 
       Prob[ , , i] <- Pnull
+      P1[ , , i] <- P1
       Pnull <- as.vector(Pnull)
     
       Pboot <- sapply(
@@ -225,7 +227,7 @@ computeCommunProb_singlecell <- function(object, type = c("triMean", "truncatedM
   Pval[Prob == 0] <- 1
   dimnames(Prob) <- list(levels(group), levels(group), rownames(pairLRsig))
   dimnames(Pval) <- dimnames(Prob)
-  net <- list("prob" = Prob, "pval" = Pval)
+  net <- list("prob" = Prob, "pval" = Pval, "P1" = P1)
   object@options$run.time <- as.numeric(execution.time, units = "secs")
   
   object@options$parameter <- list(type.mean = type, trim = trim, raw.use = raw.use, population.size = population.size,  nboot = nboot, seed.use = seed.use, Kh = Kh, n = n,

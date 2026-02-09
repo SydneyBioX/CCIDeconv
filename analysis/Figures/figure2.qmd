@@ -43,10 +43,32 @@ library(enrichplot)
 library(patchwork)
 library(ggbiplot)
 ```
-# Training a hierarchical model involving a classifier and regressor to predict the communication scores of the subcellular regions of the cell
 
+# Figure Caption
 
-## Overview of the hierarchical model involving a classifier and regressor for predicting the subcellular cell communication scores 
+Figure2: Training and evaluation of a hierarchical model for predicting
+subcellular cell communication scores.
+
+A. Schematic of the hierarchical model architecture, combining a
+classifier and a regressor to predict communication scores in
+subcellular regions.
+
+B. ROC curves showing the classification performance of the model on
+nine datasets, with the area under the curve (AUC) for each dataset
+indicated in the legend.
+
+C. Performance metrics across the nine datasets: left, violin plots
+showing the distribution of metrics; right, barplots representing the
+mean across datasets with standard error bars.
+
+D. Composite metrics comparing different base learners (left, Models
+1–4) and feature engineering approaches (right, Models A–D).
+
+E. Composite metrics for models trained with and without spatial
+features across different dataset combinations. A total of 4,590 models
+were trained (each of the 9 datasets trained across 255 combinations of
+other datasets); plots show mean composite metrics with error bars.
+
 ```{r}
 # adding the schematic here
 ```
@@ -67,16 +89,21 @@ theme_set(
 )
 ```
 
-## Performance metrics of different base learners involving tree models. Model 1: XgBoost classifier and regressor; Model 2: Random Forest Classifier and Regressor; Model 3: Random Forest Classifier and XgBoost Regressor; Model 4: Voting (Random Forest + XgBoost) Classifier and XgBoost Regressor
+### D. Composite metrics comparing different base learners (left, Models
+1–4) and feature engineering approaches (right, Models A–D).
+
 ```{r}
 #| message: false
 #| include: true
 #| warning: false
-ddir = "data/processed/plots_metrics"
-xgb = fread(file.path(ddir, "comparison_baselearners/xgboost_metrics.csv"))
-rf = fread(file.path(ddir, "comparison_baselearners/rf_metrics.csv"))
-xgb_rf = fread(file.path(ddir, "comparison_baselearners/xgboost_rf_metrics.csv"))
-xgb_voting = fread(file.path(ddir, "comparison_baselearners/xgboost_voting_metrics.csv"))
+#| label: baselearners_feature_engineering
+
+# load all the metrics obtained from training the base learners from analysis/baselearners.ipynb
+ddir = "data/training_data/"
+xgb = fread(file.path(ddir, "comparison_baselearners/xgboost_metrics.csv")) # Model1
+rf = fread(file.path(ddir, "comparison_baselearners/rf_metrics.csv")) # Model2
+xgb_rf = fread(file.path(ddir, "comparison_baselearners/xgboost_rf_metrics.csv")) # Model3
+xgb_voting = fread(file.path(ddir, "comparison_baselearners/xgboost_voting_metrics.csv")) # Model4
 
 xgb = xgb[, model:= "xgb"]
 rf = rf[, model:= "rf"]
@@ -125,31 +152,13 @@ p1 = ggplot(heatmap_df, aes(x = model, y = value, fill = model), color = ) +
 axis.text.y = element_text(size = 12)
   )
 
-# ggplot(heatmap_df, aes(x = model, y = value)) +
-#   stat_summary(fun = mean, geom = "bar", width = 0.7, aes(fill = model)) +
-#   stat_summary(fun.data = mean_sdl, fun.args = list(mult = 1),
-#                geom = "errorbar", width = 0.2, linewidth = 0.6) +
-#   geom_jitter(width = 0.15, size = 2, alpha = 0.8, color = "black") +
-#   scale_fill_manual(values = colors)+ 
-#   labs(
-#     x = "", y = ""
-#   ) +
-#   theme_classic(base_size = 20) +
-#   theme(legend.position = "none",
-#         axis.text.x = element_text(angle = 90, hjust = 1))
+# load all the metrics obtained from training the base learners from analysis/feature_engineering.ipynb
 
-```
-
-## Performance metrics of feature engineering; Each models had different methods of encoding the location features
-```{r}
-#| message: false
-#| include: true
-#| warning: false
 ddir = "data/processed/plots_metrics"
-a = fread(file.path(ddir, "comparison_features/xgboost_voting_metrics_predictive_features_ohe_not_separated_model2.csv"))
-b = fread(file.path(ddir, "comparison_features/xgboost_voting_metrics_predictive_features_catboost_not_separated_model3.csv"))
-c = fread(file.path(ddir, "comparison_features/xgboost_voting_metrics_predictive_features_combined_model4.csv"))
-d = fread(file.path(ddir, "comparison_features/xgboost_voting_metrics_model1.csv"))
+a = fread(file.path(ddir, "comparison_features/xgboost_voting_metrics_predictive_features_ohe_not_separated_model2.csv")) # Modela
+b = fread(file.path(ddir, "comparison_features/xgboost_voting_metrics_predictive_features_catboost_not_separated_model3.csv")) # Modelb
+c = fread(file.path(ddir, "comparison_features/xgboost_voting_metrics_predictive_features_combined_model4.csv")) # Modelc
+d = fread(file.path(ddir, "comparison_features/xgboost_voting_metrics_model1.csv")) #Modeld (same as model4)
 
 a = a[, model:= "Model A"]
 b = b[, model:= "Model B"]
@@ -197,13 +206,15 @@ ggarrange(p1,p2, align = "h")
 ggsave("data/results/Final_Figures/Final_figure2/heatmap_featureengineering.pdf")
 ```
 
-## Performance metrics of the model. Training was done with LOGO CV on 9 different 10X Xenium datasets
+### B. ROC curves showing the classification performance of the model on nine datasets, with the area under the curve (AUC) for each dataset indicated in the legend. 
 
 ```{r}
 #| message: false
 #| include: true
 #| warning: false
+#| label: ROC-curve
 # AUC curve 
+# load the roc_tables output from experiments/run_logo.py with the spatial information 
 roc_table = fread("data/processed/roc_tables.csv")
 xgb_voting = fread(file.path(ddir, "comparison_baselearners/xgboost_voting_metrics.csv"))
 roc_table = inner_join(roc_table, xgb_voting[,.(Dataset, auc)], by = 'Dataset')
@@ -234,7 +245,22 @@ ggplot(roc_table, aes(x = `False Positive Rate`, y = `True Positive Rate`, color
   guides(color = guide_legend(title = "Dataset"))
 
 ggsave("data/results/Final_Figures/Final_figure2/roc_table.pdf", width =10)
-# Regression metrics 
+
+
+```
+
+### C. Performance metrics across the nine datasets: left, violin plots
+showing the distribution of metrics; right, barplots representing the
+mean across datasets with standard error bars.
+
+```{r}
+#| message: false
+#| include: true
+#| warning: false
+#| label: ROC-curve
+
+#  metrics plot
+# the file with the metrics output from experiments/run_log.py is processed using extract_metrics function from utils.py and loaded
 xgb_voting = fread(file.path(ddir, "comparison_baselearners/xgboost_voting_metrics.csv"))
 xgb_voting = xgb_voting[,c(1,12,15,16,18,19,21)]
 xgb_voting[ , geometric_mean := (auc 
@@ -258,7 +284,6 @@ dt$variable <- factor(dt$variable,
              "NRMSE – Nucleus",
              "Composite metric")
 )
-
 #  metrics 
 p1 = ggplot(dt, aes(x = variable, y = value, fill = variable, color = variable)) +
   geom_violin(trim = TRUE) +
@@ -290,56 +315,18 @@ p2 = ggplot(dt, aes(x = variable, y = value)) +
 
 ggarrange(p1,p2, align = "h")
 ggsave("data/results/Final_Figures/Final_figure2/combined_best_model.pdf", width =15, height = 6)
-
-
-# xgb_voting[ , NRMSE_weighted_auc := sqrt(auc * (1 - ((cyt_NRMSE + nuc_NRMSE)/2)) ) ]
-# xgb_voting[ , R2_weighted_auc    := sqrt(auc * ((`cyt_R²` + `nuc_R²`) / 2)) ]
-# xgb_voting[ , NRMSE_weighted_recall := sqrt(`macro_recall` * (1 - ((cyt_NRMSE + nuc_NRMSE)/2)) ) ]
-# xgb_voting[ , R2_weighted_recall    := sqrt(`macro_recall` * ((`cyt_R²` + `nuc_R²`) / 2)) ]
-# df = melt(xgb_voting, id.vars= c('Dataset'), measure.vars=c("R2_weighted_auc","R2_weighted_recall", "NRMSE_weighted_auc", "NRMSE_weighted_recall")) 
-# 
-# df$variable <- factor(
-#   df$variable,
-#   levels = c("R2_weighted_auc", "R2_weighted_recall",
-#              "NRMSE_weighted_auc", "NRMSE_weighted_recall"),
-#   labels = c("GM(AUC, R²)", 
-#              "GM(Recall, R²)",
-#              "GM(AUC, 1−NRMSE)", 
-#              "GM(Recall, 1−NRMSE)")
-# )
-# 
-# colors = c("#f57e6f", "#d2dba4", "#78c3e7", "#f2a7db")
-# p1 = ggplot(df, aes(x = variable, y = value)) +
-#   stat_summary(fun = mean, geom = "bar", width = 0.7, aes(fill = variable)) +
-#   stat_summary(fun.data = mean_sdl, fun.args = list(mult = 1),
-#                geom = "errorbar", width = 0.2, linewidth = 0.6) +
-#   geom_jitter(width = 0.15, size = 2, alpha = 0.8, color = "black") +
-#   scale_fill_manual(values = colors)+ 
-#   labs(
-#     x = "Metric", y = "Score"
-#   ) +
-#   theme_classic(base_size = 20) +
-#   theme(legend.position = "none",
-#         axis.text.x = element_text(angle = 90, hjust = 1))
-# 
-# p2 = ggplot(df, aes(x = variable, y = value)) +
-#   geom_violin(aes(alpha = 0.7, fill = variable)) +
-#   geom_boxplot(width = 0.3,  color = "black", fill = "white") + #, aes(fill = variable)) +
-#   geom_jitter(width = 0.15, size = 2, alpha = 0.8, color = "black") +
-#   labs(
-#     x = "Metric", y = "Score"
-#   ) +
-#   scale_fill_manual(values = colors) + 
-#   scale_color_manual(values = colors) + 
-#   theme_classic(base_size = 20) +
-#   theme(legend.position = "none",
-#         axis.text.x = element_text(angle = 90, hjust = 1))
-# ggarrange(p1, p2, nrow = 1)
-# ggsave("data/results/Final_Figures/Final_figure2/combined_best_model.pdf")
 ```
 
-## geometric mean of the metrics across different combinations with and without the spatial feature in the model
+### E. Composite metrics for models trained with and without spatial
+features across different dataset combinations. A total of 4,590 models
+were trained (each of the 9 datasets trained across 255 combinations of
+other datasets); plots show mean composite metrics with error bars.
 ```{r}
+#| message: false
+#| include: true
+#| warning: false
+#| label: composite_metric_combinations
+# the file with the metrics output from experiments/run_combinationss.py is processed using extract_metrics function from utils.py and loaded
 metrics = fread("data/processed/metrics_all_combinations_trainings_10032025.csv")
 metrics[ , geometric_mean := (roc_auc 
                                  * (1 - ((cyt_NRMSE + nuc_NRMSE)/2)) 
@@ -381,5 +368,3 @@ axis.text.y = element_text(size = 12)
 
 ggsave("data/results/Final_Figures/Final_figure2/trainingcombinations.pdf", height = 4, width = 4.5)
 ```
-
-

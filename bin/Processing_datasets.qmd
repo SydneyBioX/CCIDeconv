@@ -127,6 +127,24 @@ results_list <- Map(
   ref            = reference_vec,
   log            = log_vec
 )
+
+# save
+names = c("Brain_ad",
+             "Brain_gl",
+             "Breast_cancer",
+             "Lung",
+             "Lung_High_Res",
+             "LymphNode",
+             "Ovarian",
+             "Pancreas",
+             "Skin")
+for (i in seq_along(results_list)) {
+  file_name <- paste0("dataset_", names[i], ".rds")
+  file_path <- file.path("data/communication_scores", file_name)
+  
+  # Save the list element
+  saveRDS(results_list[[i]], file = file_path)
+}
 ```
 
 #### Creating the data for training the model
@@ -240,7 +258,7 @@ setnames(df, old = "Main location", new = "ligand.location_hpa")
 df <- merge(df, hpa_data[, .(`Gene name`, `Main location`)], 
             by.x = "receptor", by.y = "Gene name", 
             all.x = TRUE)
-setnames(df, old = "Main location", new = "receptor.location_hpa"
+setnames(df, old = "Main location", new = "receptor.location_hpa")
 df = df[cell_pval<0.05,]
 write_csv(df,'data/test_data/raw_single_cell.csv')
 

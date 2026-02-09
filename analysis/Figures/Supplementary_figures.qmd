@@ -34,7 +34,6 @@ library(ggvenn)
 library(ggridges)
 library(cowplot)
 library(pheatmap)
-library(cowplot)
 library(ComplexHeatmap)
 library(fgsea)
 library(msigdbr)
@@ -47,16 +46,15 @@ library(gridGraphics)
 library(gridExtra)
 library(igraph)
 library(RColorBrewer)
-library(pheatmap)
 library(ggvenn)
-library(cowplot)
 library(ggVennDiagram)
 library(magick)
 library(ragg)
 library(tidyr)
 library(dplyr)
+library(ComplexHeatmap)
+library(tidyverse)
 ```
-# Training a hierarchical model involving a classifier and regressor to predict the communication scores of the subcellular regions of the cell
 
 ```{r}
 #| message: false
@@ -74,12 +72,276 @@ theme_set(
 )
 ```
 
-## S2: Upset plots of the LR communicating between each of the regions
+#### Supplementary Figure 1: 
+
+Hierarchical clustering dendrogram of Gene Ontology Cellular Component
+terms for significantly interacting (p-value \< 0.05) ligands and
+receptors detected across subcellular regions in all nine spatial
+transcriptomics datasets. Dendrogram shading indicates broad ontology
+categories; node color represents FDR-adjusted p-values of enriched
+terms, and node size reflects the number of genes in each GO term.
+Panels A and C represent clustering of significantly interacting ligands
+detected in cytoplasm and nucleus respectively and panels B and D
+represent clustering of significantly interacting receptors detected in
+cytoplasm and nucleus respectively.
+
+```{r}
+#| message: false
+#| warning: false
+#| include: true
+#| fig-width: 30
+#| fig-height: 30 
+#| label: gsea
+# Gene set enrichment analysis ********************************************
+data = fread("data/training_data/training_data.csv")
+theme_set(theme_classic(base_size = 14))
+# download the go:cc onotology terms 
+gs_cc <- setDT(msigdbr(species = "Homo sapiens", category="C5", subcategory="GO:CC"))
+TERM2GENE  <- gs_cc[,.(term = gs_name, gene = gene_symbol)]
+unique_genes_df <- read_csv("data/training_data/raw_data.csv")
+universe_genes <- c(unique_genes_df$ligand, unique_genes_df$receptor)%>%unique()
+
+run_ora <- function(detected_genes, universe_genes, TERM2GENE,
+                    minGS = 10, maxGS = 500, p_adj = "BH") {
+  detected_genes <- intersect(unique(detected_genes), universe_genes)
+  # if (length(detected_genes) < 5) {
+  #   return(data.table())  
+  # }
+  ora <- enricher(gene          = detected_genes,
+                  TERM2GENE     = TERM2GENE,
+                  universe      = universe_genes,
+                  pAdjustMethod = p_adj,
+                  minGSSize     = minGS,
+                  maxGSSize     = maxGS)
+  as.data.table(ora@result)[order(p.adjust)]
+}
+
+options(enrichplot.colours = c("#1B9E77","#D81B60"))
+
+plot_ora_tree <- function(ora_dt, top = 15, title = "") {
+  if (!nrow(ora_dt)) return(invisible(NULL))
+
+  # build enrichResult object
+  ora_obj <- new("enrichResult", result = as.data.frame(ora_dt))
+
+  # keep top categories (by adjusted p)
+  if (!is.null(ora_obj@result) && nrow(ora_obj@result) > top) {
+    keep_ids <- head(ora_obj@result[order(ora_obj@result$p.adjust), "ID"], top)
+    ora_obj@result <- ora_obj@result[ora_obj@result$ID %in% keep_ids, , drop = FALSE]
+  }
+
+  # compute pairwise term similarity then treeplot
+  # requires enrichplot >= 1.20 and DOSE loaded as a dep
+  if (requireNamespace("enrichplot", quietly = TRUE)) {
+    ora_sim <- enrichplot::pairwise_termsim(ora_obj)
+    if ("treeplot" %in% getNamespaceExports("enrichplot")) {
+      p <- enrichplot::treeplot(ora_sim, showCategory = top, fontsize = 10,
+                                extend = 1,
+                                label_format_tiplab = 30,
+                                label_format_cladelab = 20,
+                                leave_fontsize = 4,
+                                clade_fontsize = 4,
+                                offset =8,
+                                legend_n = 0,
+                                geneClusterPanel = "dotplot",
+                                group_color = c("#f27042",
+                                                "#fcda83", "#b62e48", 
+                                                "#7ecba4", "#4965b0"
+                                                )) + ggtitle(title)
+      return(p)
+    } else {
+      # fallback: enrichment map if treeplot not available
+      p <- enrichplot::emapplot(ora_sim, showCategory = top) + ggtitle(paste0(title, " (emap)"))
+      return(p)
+    }
+  } else {
+    stop("Package 'enrichplot' is required for tree/emap plots. Install with BiocManager::install('enrichplot').")
+  }
+}
+
+# Suppose you have four enrichment results
+padj_min <- min(c(res_lig_cyt$p.adjust,
+                  res_lig_nuc$p.adjust,
+                  res_rec_cyt$p.adjust,
+                  res_rec_nuc$p.adjust))
+
+padj_max <- max(c(res_lig_cyt$p.adjust,
+                  res_lig_nuc$p.adjust,
+                  res_rec_cyt$p.adjust,
+                  res_rec_nuc$p.adjust))
+
+gene_ratio_min <- 0
+gene_ratio_max <- max(c(res_lig_cyt$Count,
+                        res_lig_nuc$Count,
+                        res_rec_cyt$Count,
+                        res_rec_nuc$Count))
+
+
+p1 = plot_ora_tree(res_lig_cyt, top = 17, title = "A. Ligands - Cytoplasm") +
+  scale_color_gradientn(
+    colors = c("#1B9E77", "#1B9E77","#D81B60", "#D81B60"),  # repeated colors
+    values = scales::rescale(c(0, 0.05, 0.05, 1)),           # cutoff at 0.05
+    limits = c(0, 1),                                        # full range
+    name = "FDR-adjusted p-value"
+  )+ 
+      scale_size_continuous(limits = c(gene_ratio_min, gene_ratio_max), name = "Number of genes") +
+      theme(legend.position = "none")
+p2 = plot_ora_tree(res_lig_nuc, top = 17, title = "B. Ligands - Nucleus") + 
+  scale_color_gradientn(
+    colors = c("#1B9E77", "#1B9E77","#D81B60", "#D81B60"),  # repeated colors
+    values = scales::rescale(c(0, 0.05, 0.05, 1)),           # cutoff at 0.05
+    limits = c(0, 1),                                        # full range
+    name = "FDR-adjusted p-value"
+  ) + 
+  scale_size_continuous(limits = c(gene_ratio_min, gene_ratio_max), name = "Number of genes") +
+  theme(legend.position = "none")
+p3 = plot_ora_tree(res_rec_cyt, top = 17, title = "C. Receptors - Cytoplasm") + 
+  scale_color_gradientn(
+    colors = c("#1B9E77", "#1B9E77","#D81B60", "#D81B60"),  # repeated colors
+    values = scales::rescale(c(0, 0.05, 0.05, 1)),           # cutoff at 0.05
+    limits = c(0, 1),                                        # full range
+    name = "FDR-adjusted p-value"
+  ) + 
+  scale_size_continuous(limits = c(gene_ratio_min, gene_ratio_max), name = "Number of genes") +
+  theme(legend.position = "none")
+p4 = plot_ora_tree(res_rec_nuc, top = 17, title = "D. Receptors - Nucleus") + 
+  scale_color_gradientn(
+    colors = c("#1B9E77", "#1B9E77","#D81B60", "#D81B60"),  # repeated colors
+    values = scales::rescale(c(0, 0.05, 0.05, 1)),           # cutoff at 0.05
+    limits = c(0, 1),                                        # full range
+    name = "FDR-adjusted p-value"
+  ) + 
+  scale_size_continuous(limits = c(gene_ratio_min, gene_ratio_max), name = "Number of genes") +
+  theme(legend.position = "none")
+
+combined <- (p1 | p2) / (p3 | p4) &
+  theme(                       # applies to ALL subplots uniformly
+    text = element_text(size = 20),
+    axis.text.y = element_text(size = 0),
+    axis.text.x = element_text(size = 0)
+  )
+combined
+ggsave('data/results/Final_Figures/Final_figure1/overlap_test_tree.pdf', height = 15, width = 20)
+
+p1 + theme(legend.position = "bottom")
+ggsave('data/results/Final_Figures/Final_figure1/overlap_test_tree_legend.pdf', height = 15, width = 20)
+
+
+```
+
+#### Supplementary Figure 4: 
+
+Principal component analysis (PCA) of CellChat-derived communication
+score components across the whole cell (left), cytoplasm (middle), and
+nucleus (right) for all the 9 subcellularly resolved spatial
+transcriptomics datasets. Each point represents a ligand–receptor (LR)
+pair and is colored by the P1 value, defined as the Hill function of LR
+expression.
+
 ```{r}
 #| message: false
 #| include: true
 #| warning: false
-data <- fread("data/processed/training_data_071025.csv")
+#| label: pca-plots
+pc_df = fread("data/processed/pcs_df.csv")
+# color by product of expression 
+p1= ggplot(pc_df, aes(PC1, PC2, color = cell_expression)) + 
+  geom_point(size = 1, alpha = 0.7) +
+  theme_classic() +
+  ylim(y = c(-3, 10)) + 
+  xlim(-10,10) +
+  scale_color_gradient(low="#fadc85",
+                     high="#a31044", space ="Lab", trans = "log10",
+    breaks = c(1e-7, 1e-5, 1e-3),
+  labels = c(expression(10^-7), expression(10^-5), expression(10^-3))
+)+
+  labs(x = "PC1 (Explained variance: 43.7%)",
+        y = "PC2 (Explained variance: 20%)"
+       ) +
+  theme(
+    legend.position = "right",
+    legend.text = element_text(size = 20),
+    axis.text = element_text(size = 20),
+    axis.title = element_text(size = 20),
+    panel.grid.minor = element_blank(),
+    legend.title = element_text(size = 20)
+  ) +
+  guides(color=guide_colorbar(title="LR Expression(log10)"))
+
+p2 = ggplot(pc_df, aes(PC1, PC2, color = cyt_expression)) + 
+  geom_point(size = 1, alpha = 0.7) +
+  theme_classic() +
+  ylim(y = c(-3, 10)) + 
+  xlim(-10,10) +
+  scale_color_gradient(low="#fadc85",
+                     high="#a31044", space ="Lab", trans = "log10") +
+  labs(x = "PC1 (Explained variance: 43.7%)",
+        y = "PC2 (Explained variance: 20%)"
+       ) +
+  theme(
+    legend.position = "right",
+    legend.text = element_text(size = 20),
+    axis.text = element_text(size = 20),
+    axis.title = element_text(size = 20),
+    panel.grid.minor = element_blank(),
+    legend.title = element_text(size = 20)
+  ) +
+  guides(color=guide_colorbar(title="LR Expression(log10)"))
+
+p3 = ggplot(pc_df, aes(PC1, PC2, color = nuc_expression)) + 
+  geom_point(size = 1, alpha = 0.7) +
+  theme_classic() +
+  ylim(y = c(-3, 10)) + 
+  xlim(-10,10) +
+  scale_color_gradient(low="#fadc85",
+                     high="#a31044", space ="Lab", trans = "log10") +
+  labs(x = "PC1 (Explained variance: 43.7%)",
+        y = "PC2 (Explained variance: 20%)"
+       ) +
+  theme(
+    legend.position = "right",
+    legend.text = element_text(size = 20),
+    axis.text = element_text(size = 20),
+    axis.title = element_text(size = 20),
+    panel.grid.minor = element_blank(),
+    legend.title = element_text(size = 20)
+  ) +
+  guides(color=guide_colorbar(title="LR Expression(log10)"))
+ggarrange(p1,p2,p3, ncol = 3, common.legend = TRUE, legend = "none")
+
+ggsave("data/results/Final_Figures/Final_figure1/pca_plot_expr.pdf", width = 20)
+
+legend <- get_legend(
+  p1 +
+    guides(color = guide_colorbar(
+      title = "LR Expression (log10)",
+      title.position = "bottom",
+      title.hjust = 0.5,
+      barwidth = 15,
+      barheight = 1,
+      direction = "horizontal"
+    ))
+)
+
+
+ggsave("data/results/Final_Figures/Final_figure1/pca_legend.pdf", legend, width=4, height=1)
+```
+
+#### Supplementary Figure 2: 
+
+Upset plots of the significantly communicating LR communicating between
+each of the subcellular regions for all the 9 subcellularly resolved
+spatial transcriptomics datasets. A. Brain (AD), B. Brain (GL), C.
+Breast Cancer, D. Lung, E. Lung (High-Res), F. Lymph Node, G. Pancreas,
+H. Ovarian, I. Skin. N - Nucleus, C - Cytoplasm, WC - whole cell, AD -
+Alzheimer's Disease, GL - Glioblastoma
+
+```{r}
+#| message: false
+#| include: true
+#| warning: false
+#| label: upset-plots
+data <- fread("data/training_data/training_data.csv") 
 data$unique_id = paste0(data$lr_pair, "_", data$source, "_", data$target)
 venn_data = list()
 plot_list = list()
@@ -94,7 +356,7 @@ for (i in unique(data$sample)){
 }
 
 
-files = list.files('data/processed/cyt_to_nuc')
+files = list.files('data/processed/cyt_to_nuc') # cyt to nuc and nuc to cyt (run the bin/cytnuc_nuccyt.R)
 cyt_to_nuc = list()
 nuc_to_cyt = list()
 for (i in files){
@@ -173,15 +435,17 @@ for (i in 1:length(names(venn_data))){
   print(p)
   dev.off()
 }
-
 ```
 
-## S3. Distribution of communication scores in each dataset across the regions 
+#### Supplementary Figure 3: 
+
+Distribution of communication scores in each 9 subcellularly resolved spatial transcriptomics datasets across the cell and its subcellular regions. Only the significantly communicating ligand receptor pairs (p-value \< 0.05) that were identified in all three regions (cell, cytoplasm and nucleus) are shown. A. Brain (AD), B. Brain (GL), C. Breast Cancer D. Lung, E. Lung (High-Res), F. Lymph Node, G. Pancreas, H. Ovarian, I. Skin.
+
 ```{r}
 #| message: false
 #| include: true
 #| warning: false
-data = fread("data/processed/training_data_071025.csv")
+#| label: boxplots
 box_data <- data[(nuc_pval < 0.05) | (cyt_pval < 0.05) | (cell_pval < 0.05), .(cell_score, cell_P1, cyt_score, cyt_P1, nuc_score, nuc_P1, sample)]
 box_data <- box_data %>%
   mutate(compartment = case_when(
@@ -221,74 +485,6 @@ cell_cyt_nuc_long[, log_Score := log10(Score + 1e-10)]
 
 plotdir = "data/results/Final_Figures/Supplementary_figures/compare_ditributions/"
 ggboxplot(
-  cell_cyt_long, 
-  x = "Compartment", 
-  y = "log_Score",
-  color = "Compartment", 
-  palette = c("#b089c0", "#97c9c8"),  # colorblind-friendly
-  add = "jitter", 
-  add.params = list(alpha = 1, size = 0.5)
-) +
-  facet_wrap(~ sample, ncol = 3) +
-  stat_compare_means(
-    comparisons = list(
-      c("cell", "cytoplasm")
-    ),
-    method = "wilcox.test",
-    size = 4
-  ) +
-  labs(
-    y = expression(log[10]~"Communication scores"),
-    x = NULL
-  ) +
-  theme_minimal(base_size = 14) +
-  theme(
-    panel.grid = element_blank(),
-    panel.border = element_rect(color = "black", fill = NA, size = 1), # box around each facet
-    strip.background = element_blank(),
-    strip.text = element_text(size = 12, face = "bold"),
-    axis.text.x = element_text(size = 12, angle = 30, hjust = 1),
-    axis.text.y = element_text(size = 12),
-    legend.position = "none"
-  )
-ggsave(file.path(plotdir, 'cellvscyt.pdf'), height = 11)
-
-ggboxplot(
-  cell_nuc_long, 
-  x = "Compartment", 
-  y = "log_Score",
-  color = "Compartment", 
-  palette = c("#b089c0", "#ea9b8e"),  # colorblind-friendly
-  add = "jitter", 
-  add.params = list(alpha = 1, size = 0.5)
-) +
-  facet_wrap(~ sample, ncol = 3) +
-  stat_compare_means(
-    comparisons = list(
-      c("cell", "nucleus")
-    ),
-    method = "wilcox.test",
-    size = 4
-  ) +
-  labs(
-    y = expression(log[10]~"Communication scores"),
-    x = NULL
-  ) +
-  theme_minimal(base_size = 14) +
-  theme(
-    panel.grid = element_blank(),
-    panel.border = element_rect(color = "black", fill = NA, size = 1), # box around each facet
-    strip.background = element_blank(),
-    strip.text = element_text(size = 12, face = "bold"),
-    axis.text.x = element_text(size = 12, angle = 30, hjust = 1),
-    axis.text.y = element_text(size = 12),
-    legend.position = "none"
-  )
-
-ggsave(file.path(plotdir, 'cellvsnuc.pdf'), height = 11)
-
-
-ggboxplot(
   cell_cyt_nuc_long, 
   x = "Compartment", 
   y = "log_Score",
@@ -325,14 +521,17 @@ ggboxplot(
 ggsave(file.path(plotdir, 'cellvscytvsnuc.pdf'), height = 15)
 ```
 
-## S4. Performance metrics of the model.
+### Supplementary Figure 5: 
+
+A. Additional performance metrics of the best performing selected model D across the 9 subcellularly resolved spatial transcriptomics datasets not shown in the main Figure 2. B. Classification and regression metrics of the different base learners across the 9 subcellularly resolved spatial transcriptomics datasets. C. Classification and regression metrics of models with different feature engineering approaches selected across the 9 subcellularly resolved spatial transcriptomics datasets.
 
 ```{r}
 #| message: false
 #| include: true
 #| warning: false
-ddir = "data/processed/plots_metrics"
-xgb_voting = fread(file.path(ddir, "comparison_baselearners/xgboost_voting_metrics.csv"))
+#| label: other_metrics 
+ddir = "data/processed/plots_metrics" 
+xgb_voting = fread(file.path(ddir, "comparison_baselearners/xgboost_voting_metrics.csv")) #used extract_metrics from utils.py
 xgb_voting = xgb_voting[, c(1,2:7,11,13,14,17,20)]
 class_metrics = melt(xgb_voting, id.vars = c('Dataset'), measure.vars = 2:12)
 
@@ -357,14 +556,6 @@ ggplot(class_metrics, aes(x = variable, y = value)) +
   labs( x = "", y = "Value")
 ggsave("data/results/Final_Figures/Supplementary_figures/best_model_metrics/class_metrics.pdf", width = 12)
 
-```
-
-
-## S5. Classification and regression  metrics of the different base learners.
-```{r}
-#| message: false
-#| include: true
-#| warning: false
 ddir = "data/processed/plots_metrics"
 xgb = fread(file.path(ddir, "comparison_baselearners/xgboost_metrics.csv"))
 rf = fread(file.path(ddir, "comparison_baselearners/rf_metrics.csv"))
@@ -429,14 +620,7 @@ axis.text.y = element_text(size = 12)
   facet_wrap(~model, nrow = 1)
 
 ggsave("data/results/Final_Figures/Supplementary_figures/heatmap_comparisons/heatmap_baselearners.pdf", width = 10)
-```
 
-
-## S6. Classification and regression metrics of models with different feature engineering approaches
-```{r}
-#| message: false
-#| include: true
-#| warning: false
 ddir = "data/processed/plots_metrics"
 a = fread(file.path(ddir, "comparison_features/xgboost_voting_metrics_predictive_features_ohe_not_separated_model2.csv"))
 b = fread(file.path(ddir, "comparison_features/xgboost_voting_metrics_predictive_features_catboost_not_separated_model3.csv"))
@@ -503,13 +687,38 @@ ggsave("data/results/Final_Figures/Supplementary_figures/heatmap_comparisons/hea
 
 ```
 
-## S7. Number of LR pairs correctly classified when training the lung cancer dataset on 255 combinations of the 8 training datasets (raw counts on the left, percentages on the right)
+#### Supplementary Figure 7: 
+
+Assessing model stability by training each dataset using varying combinations of the remaining datasets. Each dataset was trained with 255 different combinations of the other eight datasets. A–B. Violin and Ridge plots showing the distribution of the number of correctly classified LR pairs across combinations for each dataset. C. Violin plots of additional performance metrics not reported in the main figure. D. Ridgeplots of the composite metric across datasets, illustrating variability when trained on different dataset combinations.
 
 ```{r}
 #| message: false
 #| include: true
 #| warning: false
-dir = "data/processed/training_256/correct"
+#| label: combo_dataset
+row = fread("plot_supplementary7a")
+ggplot(row, aes(x = sample, y = percent, fill = sample)) +
+  geom_violin(width = 0.6) + 
+  geom_boxplot(color = "black", fill = "white", width = 0.05) + 
+  theme(
+    axis.text.x = element_blank(),
+    axis.ticks.x = element_blank()
+  )  + 
+  labs(x = "", y = "Number of correctly \n classified LR pairs") +
+  scale_fill_manual(values = colors) + 
+  theme_classic(base_size = 18) +
+    theme(
+      axis.text = element_text(size = 16),
+      axis.title = element_text(size = 18),
+      legend.text = element_text(size = 18),
+      legend.title = element_text(size = 18),
+      plot.title = element_text(size = 18, hjust = 0.5),
+      axis.text.x = element_text(angle = 45,  hjust = 1, vjust = 1),
+      legend.position = "None"
+    )
+ggsave("data/results/Final_Figures/Supplementary_figures/counts_plots/lr_box_plot.pdf", width = 8)
+
+dir = "data/processed/training_256/correct" # for each dataset, run_compartments.py was run and each lr_pair is scored if its correct or wrong
 files = list.files(dir)
 file_list = list()
 
@@ -531,52 +740,6 @@ percent <- prediction[, lapply(.SD, function(x) sum(x) *100 / .N),
 
 colsums = melt(col, id.vars = "sample")
 percent = melt(percent, id.vars = "sample")
-# p1 = ggplot(colsums, aes(x = value)) +
-#   geom_histogram(binwidth = 1, fill = "#bebadb", color = "#bebadb") +
-#   theme_classic(base_size = 12) +
-#   labs(x = "Number of Correct classifications", y = "Number of combinations") +
-#   facet_wrap(~sample, scales = 'free')
-# 
-# p2 = ggplot(colsums, aes(x = "", y = value)) +
-#   geom_violin(fill = "#fcdeed", width = 0.4) + 
-#   geom_boxplot(color = "gray50", fill = "white", width = 0.05) + 
-#   geom_jitter(width = 0.3, alpha = 0.1, size = 0.5) + 
-#   theme_classic(base_size = 12) +
-#   theme(
-#     axis.text.x = element_blank(),
-#     axis.ticks.x = element_blank()
-#   ) + 
-#   labs(x = "", y = "LR pairs - classfied correct") +
-#   facet_wrap(~sample, scales = 'free')
-
-# p3 <- ggplot(percent, aes(x = value)) +
-#   geom_histogram(binwidth = 1, fill = "#8ed3c7", color = "black") +
-#   theme_classic(base_size = 12) +
-#   labs(x = "% of Correct classifications", y = "Number of combinations") +
-#   facet_wrap(~sample, scales = 'free')
-# 
-# p4 = ggplot(percent, aes(x = "", y = value)) +
-#   geom_violin(fill = "#ccebc5", width = 0.4) + 
-#   geom_boxplot(color = "black", fill = "white", width = 0.05) + 
-#   geom_jitter(width = 0.3, alpha = 0.1, size = 1) + 
-#   theme_classic(base_size = 12) +
-#   theme(
-#     axis.text.x = element_blank(),
-#     axis.ticks.x = element_blank()
-#   )  + 
-#   labs(x = "", y = "LR pairs - classfied correct (%)") + 
-#   facet_wrap(~sample, scales = 'free')
-
-# ggarrange (p1, p2, common.legend = T)
-# ggsave("data/results/Final_Figures/Supplementary_figures/counts_plots/counts_plots_combinations.pdf", height = 10, width = 10)
-```
-
-## S8.  Number of times each LR pair was classified correctly 
-```{r}
-#| message: false
-#| include: true
-#| warning: false
-
 row <- prediction[, .(value = rowSums(.SD)), by = sample, .SDcols = 2:256]
 percent <- prediction[, .(value = rowSums(.SD) * 100/ 256), 
                       by = sample, .SDcols = 2:256]
@@ -608,51 +771,12 @@ ggplot(row, aes(x = value, y = sample, fill = sample)) +
   labs(x = "Number of correctly \n classified LR pairs", y = "Datasets") +
   scale_fill_manual(values = colors) + # customize colors
   theme(legend.position = "none") 
-
-# 
-# ggplot(percent, aes(x = value, y = sample, fill = sample)) +
-#   geom_density_ridges(alpha = 0.7, color = "black", scale = 1) +
-#   theme_classic(base_size = 12) +
-#   labs(x = "Number of combinations", y = "Sample")
-# p2 = ggplot(row, aes(x = "", y = value)) +
-#   geom_violin(fill = "#efaba3", width = 0.6) + 
-#   geom_boxplot(color = "black", fill = "white", width = 0.05) + 
-#   geom_jitter(width = 0.3, alpha = 0.1, size = 1) + 
-#   theme_classic(base_size = 12) +
-#   theme(
-#     axis.text.x = element_blank(),
-#     axis.ticks.x = element_blank()
-#   )  + 
-#   labs(x = "", y = "Number of combinations") +
-#   facet_wrap(~sample, scales = 'free')
-
-# p3 <- ggplot(percent, aes(x = value)) +
-#   geom_histogram(binwidth = 5, fill = "#fdb461", color = "black") +
-#   theme_classic(base_size = 12) +
-#   labs(x = "% of combinations", y = "count of LR") +
-#   facet_wrap(~sample, scales = 'free')
-# 
-# p4 = ggplot(percent, aes(x = "", y = value)) +
-#   geom_violin(fill = "#ffffb4", width = 0.6) + 
-#   geom_boxplot(color = "black", fill = "white", width = 0.05) + 
-#   geom_jitter(width = 0.3, alpha = 0.1, size = 1) + 
-#   theme_classic(base_size = 12) +
-#   theme(
-#     axis.text.x = element_blank(),
-#     axis.ticks.x = element_blank()
-#   )  + 
-#   labs(x = "", y = "% of combinations")+
-#   facet_wrap(~sample, scales = 'free')
-
-# ggarrange (p1, p2, p3, p4)
 ggsave("data/results/Final_Figures/Supplementary_figures/counts_plots/lr_counts_plot.pdf")
 
 
 
 # other metrics 
-
-class_dir <- "data/processed/scores_training/classification_metrics/"
-
+class_dir <- "data/processed/scores_training/classification_metrics/" # metrics from run_compartments.py calculated using extract_metrics in utils.py
 files = list.files(class_dir)
 file_list = list()
 
@@ -674,8 +798,8 @@ metrics_further = metrics
 
 
 # Regression metrics 
-cyt_reg_dir <- "data/processed/scores_training/cyt_metrics"
-nuc_reg_dir <- "data/processed/scores_training/nuc_metrics"
+cyt_reg_dir <- "data/processed/scores_training/cyt_metrics" # metrics from run_compartments.py calculated using extract_metrics in utils.py
+nuc_reg_dir <- "data/processed/scores_training/nuc_metrics"# metrics from run_compartments.py calculated using extract_metrics in utils.py
 files = list.files(cyt_reg_dir)
 file_list = list()
 for (i in files){
@@ -778,9 +902,15 @@ ggplot(combo_metrics, aes(x = geometric_mean, y = sample, fill = sample)) +
 ggsave("data/results/Final_Figures/Supplementary_figures/counts_plots/composite_metric.pdf")
 ```
 
-## S9. Are spatial features important?
+#### Supplementary Figure 6: 
+Performance metrics of the models trained with and without spatial features across different combinations of datasets. There were a total of 4590 models trained, with each dataset (n = 9) trained across 255 combinations of other datasets.
+
 ```{r}
-metrics = fread("data/processed/metrics_all_combinations_trainings_10032025.csv")
+#| message: false
+#| include: true
+#| warning: false
+#| label: combo_metrics 
+metrics = fread("data/processed/metrics_all_combinations_trainings_10032025.csv") # metrics from runnining experiments/run_combinatiions.py and extract_metrics from utils.py
 df_long <- metrics[,c(16,24,1,6,3,8,9,12)]
 colnames(df_long) = c("AUC",
              "Recall (Macro)",
@@ -841,113 +971,18 @@ ggplot(df_summary, aes(x = combo_size, y = mean_val, color = condition, group = 
 
 ggsave("data/results/Final_Figures/Supplementary_figures/best_model_metrics/spatial_features.pdf", height = 10)
 ```
- 
-## S9. Correlation of region specific scores with the cell score with and without spatial feature, B.  Distribution of the pairwise difference between the various model trainings on different combination of datasets given a candidate dataset (lung cancer dataset included) C. Network plot (interaction sum) of the LR scores on the single cell data in the  predicted cytoplasm and nucleus
+
+#### Supplementary Figure 8: 
+Assessing spatial characteristics of ligand–receptor communication scores across datasets. A. Correlation of region-specific communication scores with the whole-cell score, comparing models trained with and without spatial features. B. Distribution of pairwise differences in model predictions across all combinations of training datasets for a given candidate dataset. Brain (AD) and Lung datasets, which exhibit high spatial correlation, are included. C. Network plot showing the summed ligand–receptor (LR) scores in the predicted cytoplasm and nucleus when the model is applied to single-cell data.
 
 ```{r}
-df =  fread("data/processed/training_data_071025.csv")
+#| message: false
+#| include: true
+#| warning: false
+#| label: single_cell 
+# load output from experiments/run_singlecell.py
 
-# compute correlation per sample
-corr_df <- df %>%
-  group_by(sample) %>%
-  summarise(corr = cor(cell_P1, cyt_P1, use="complete.obs", method="pearson"),
-            .groups="drop")
-
-corr_df$sample <- c("Brain (AD)",
-             "Brain (GL)",
-             "Breast Cancer",
-             "Lung",
-             "Lung (High-Res)",
-             "Lymph Node",
-             "Ovarian",
-             "Pancreas",
-             "Skin")
-# plot
-p1 = ggplot(corr_df, aes(x=sample, y=corr, fill=sample)) +
-  geom_col() +
-  coord_flip() +
-  labs(title="Correlation between cell_P1 and cyt_P1 \n(without spatial)",
-       y="Pearson correlation", x="Sample") +
-  theme(legend.position = "")
-
-
-corr_df <- df %>%
-  group_by(sample) %>%
-  summarise(corr = cor(cell_score, cyt_score, use="complete.obs", method="pearson"),
-            .groups="drop")
-
-corr_df$sample <- c("Brain (AD)",
-             "Brain (GL)",
-             "Breast Cancer",
-             "Lung",
-             "Lung (High-Res)",
-             "Lymph Node",
-             "Ovarian",
-             "Pancreas",
-             "Skin")# plot
- 
-p2 = ggplot(corr_df, aes(x=sample, y=corr, fill=sample)) +
-  geom_col() +
-  coord_flip() +
-  labs(title="Correlation between cell_score and cyt_score \n(with spatial)",
-       y="Pearson correlation", x="Sample") +
-  theme(legend.position = "")
-
-ggarrange(p1,p2)
-
-
-
-# compute correlation per sample
-corr_df <- df %>%
-  group_by(sample) %>%
-  summarise(corr = cor(cell_P1, nuc_P1, use="complete.obs", method="pearson"),
-            .groups="drop")
-
-
-corr_df$sample <- c("Brain (AD)",
-             "Brain (GL)",
-             "Breast Cancer",
-             "Lung",
-             "Lung (High-Res)",
-             "Lymph Node",
-             "Ovarian",
-             "Pancreas",
-             "Skin")
-# plot
-p3 = ggplot(corr_df, aes(x=sample, y=corr, fill=sample)) +
-  geom_col() +
-  coord_flip() +
-  labs(title="Correlation between cell_P1 and nuc_P1 \n(without spatial)",
-       y="Pearson correlation", x="Sample") +
-  theme(legend.position = "")
-
-
-corr_df <- df %>%
-  group_by(sample) %>%
-  summarise(corr = cor(cell_score, nuc_score, use="complete.obs", method="pearson"),
-            .groups="drop")
-
-corr_df$sample <- c("Brain (AD)",
-             "Brain (GL)",
-             "Breast Cancer",
-             "Lung",
-             "Lung (High-Res)",
-             "Lymph Node",
-             "Ovarian",
-             "Pancreas",
-             "Skin")# plot
- 
-p4 = ggplot(corr_df, aes(x=sample, y=corr, fill=sample)) +
-  geom_col() +
-  coord_flip() +
-  labs(title="Correlation between cell_score and nuc_score \n(with spatial)",
-       y="Pearson correlation", x="Sample") +
-  theme(legend.position = "")
-
-ggarrange(p1,p2,p3,p4)
-
-
-
+df =  fread("data/training_data.csv/training_data.csv") 
 # Cytoplasmic comparison
 corr_no_spatial <- df %>%
   group_by(sample) %>%
@@ -965,16 +1000,6 @@ corr_spatial$sample <- c("Brain (AD)","Brain (GL)","Breast Cancer","Lung",
                      "Lung (High-Res)","Lymph Node","Ovarian","Pancreas","Skin")
 cyt_corr <- bind_rows(corr_no_spatial, corr_spatial)
 
-
-p_cyt <- ggplot(cyt_corr, aes(x=sample, y=corr, fill=type)) +
-  geom_col(position="dodge") +
-  labs(
-       y="Pearson correlation", x="") +
-  scale_fill_manual(values = c("#D2665A", "#F2B28C")) + 
-  theme_classic(base_size = 20) +
-  theme(legend.title=element_blank(),
-        axis.text.x = element_text(angle = 45, size = 12, hjust = 1, vjust = 1))
-
 # Nuclear comparison
 corr_no_spatial <- df %>%
   group_by(sample) %>%
@@ -991,19 +1016,6 @@ corr_spatial <- df %>%
 corr_spatial$sample <- c("Brain (AD)","Brain (GL)","Breast Cancer","Lung",
                      "Lung (High-Res)","Lymph Node","Ovarian","Pancreas","Skin")
 nuc_corr <- bind_rows(corr_no_spatial, corr_spatial)
-
-p_nuc <- ggplot(nuc_corr, aes(x=sample, y=corr, fill=type)) +
-  geom_col(position="dodge") +
-  scale_fill_manual(values = c("#D2665A", "#F2B28C"))+
-  labs(
-       y="", x="") +
-  theme_classic(base_size = 20) +
-  theme(legend.title=element_blank(),
-        axis.text.x = element_text(angle = 45, size = 12, hjust = 1, vjust = 1))
-
-ggarrange(p_cyt, p_nuc, ncol=2, common.legend=TRUE, legend="bottom")
-
-ggsave("data/results/Final_Figures/Supplementary_figures/single_cell/correlation.pdf", width = 10)
 
 # scatter plot  join the nuc and cytoplasm 
 colnames(nuc_corr)[2] = "Nucleus"
@@ -1027,7 +1039,7 @@ ggplot(wide, aes(x=`With spatial`, y=`Without spatial`, color=Region, shape = Da
 ggsave("data/results/Final_Figures/Supplementary_figures/single_cell/correlation.pdf")
 
 
-metrics = fread("data/processed/metrics_all_combinations_trainings_10032025.csv")
+metrics = fread("data/processed/metrics_all_combinations_trainings_10032025.csv") # extract_metrics using utils.py from the run_compartments.py
 metrics[ , geometric_mean := (roc_auc 
                                  * (1 - ((cyt_NRMSE + nuc_NRMSE)/2)) 
                                     * macro_recall 
@@ -1073,75 +1085,78 @@ ggplot(df_long, aes(x = test_name, y = difference, fill = test_name)) +
 axis.text.y = element_text(size = 18)
   )
 ggsave("data/results/Final_Figures/Supplementary_figures/single_cell/boxplot_difference.pdf", width =8)
-```
 
-## Exploring if the incorrect classifications are in low number of datasets
-
-
-```{r}
-dir = "data/processed/scores_training/classification_raw"
-files = list.files(dir)[1:9]
-file_list = list()
-
-for (i in files){
-  # read the files and store in a list
-  dat <- fread(file.path(dir, i))
-  dat$correct = ifelse(dat$pred == dat$true, 1, 0)
-  x = nrow(dat)/255
-  dat$id = rep(1:x, 255)
-  data = dcast(dat, id ~ group, fun.aggregate = NULL, value.var = "correct")
-  data$sample = sub("classification_spe_list_(.*)_cellchat\\.csv", "\\1", i)
-  file_list[[i]] = data
+cytoplasm = fread("data/results/predictions/scatter_data_cyt_single_cell.csv")
+nucleus = fread("data/results/predictions/scatter_data_nuc_single_cell.csv")
+count_function = function(data){
+  shift_val = min(0, min(data$pred))
+  data$score = data$pred - shift_val
+  # compute the network plot
+  links = data.table(
+    source= data$source,
+    target= data$target,
+    importance= data$score
+    )
+  edges_count <- links[, .(count = .N), by = .(source, target)]
+  edges_sum   <- links[, .(sum = sum(importance, na.rm = TRUE)), 
+                     by = .(source, target)]
+  nodes <- unique(c(links$source, links$target))
+  all_pairs <- CJ(source = nodes, target = nodes, unique=TRUE)
+  matrix <- merge(all_pairs, edges_count, by=c("source","target"), all.x=TRUE)
+  matrix <- merge(matrix, edges_sum,   by=c("source","target"), all.x=TRUE)
+  matrix[is.na(count), count := 0]
+  matrix[is.na(sum),   sum   := 0]
 }
+# for each of the group, shift the prediction and then construct adjacency and from the network plot
+data = cytoplasm
+# shift the scale 
+shift_val = min(0, min(data$pred))
+data$score = data$pred - shift_val
+# compute the network plot
+links = data.table(
+  source= data$source,
+  target= data$target,
+  importance= data$score
+  )
+edges_count <- links[, .(weight = .N), by = .(source, target)]
+edges_sum   <- links[, .(weight = sum(importance, na.rm = TRUE)), 
+                   by = .(source, target)]
+nodes = unique(c(data$source, data$target))
+network <- graph_from_data_frame(d=edges_count, vertices=nodes, directed=F) 
+coul  <- brewer.pal(9, "Set1") 
+my_color = colorRampPalette(coul)(20)
+pdf("data/results/Final_Figures/Final_figure4/scnetworks.pdf", width = 15)
+par(mfrow = c(1,2))
+# plot(network, vertex.color=coul, edge.width=0.2*(E(network)$weight), main = "Cyt Network (counts)", layout=layout.circle)
+# plots_count = recordPlot()
+network <- graph_from_data_frame(d=edges_sum, vertices=nodes, directed=F) 
+plot(network, vertex.color=coul, edge.width=0.2*(E(network)$weight), main = "Cyt Network (sum)", layout=layout.circle)
+plots_sum = recordPlot()
 
-prediction = setDT(do.call(rbind, file_list))
-rownames(prediction) = 1:nrow(prediction)
-col = prediction[, lapply(.SD, sum), by = sample, .SDcols = c(2:256)]
-percent <- prediction[, lapply(.SD, function(x) sum(x) *100 / .N), 
-                      by = sample, .SDcols = 2:256]
+data = nucleus
+# shift the scale 
+shift_val = min(0, min(data$pred))
+data$score = data$pred - shift_val
+# compute the network plot
+links = data.table(
+  source= data$source,
+  target= data$target,
+  importance= data$score
+  )
+edges_count <- links[, .(weight = .N), by = .(source, target)]
+edges_sum   <- links[, .(weight = sum(importance, na.rm = TRUE)), 
+                   by = .(source, target)]
+nodes = unique(c(data$source, data$target))
+network <- graph_from_data_frame(d=edges_count, vertices=nodes, directed=F) 
+coul  <- brewer.pal(9, "Set1") 
+my_color = colorRampPalette(coul)(20)
+# plot(network, vertex.color=coul, edge.width=0.2*(E(network)$weight), main = "Nuc Network (counts)", layout=layout.circle)
+# plots_count = recordPlot()
+network <- graph_from_data_frame(d=edges_sum, vertices=nodes, directed=F) 
+plot(network, vertex.color=coul, edge.width=0.2*(E(network)$weight), main = "Nuc Network (sum):", layout=layout.circle)
+plots_sum = recordPlot()
+dev.off()
 
-counts <- prediction[, .N, by = sample]
-counts$sample <- factor(counts$sample,
-  levels = unique(counts$sample)
-)
-
-data = fread("data/processed/combinations_iters.csv")
-data$sample = gsub("^spe_list_|_cellchat$", "",data$test_name)
-column = melt(col, id.vars = 'sample', measure.vars = 2:256, variable.name = 'combo_id')
-setDT(column)
-setkey(column, combo_id, sample)
-setkey(data, combo_id, sample)
-merged_dt <- data[column]
-merged_dt = merged_dt[counts, on = 'sample']
-merged_dt[,percent:= value/N]
-summary_df <- merged_dt %>%
-  group_by(combo_size, sample) %>%
-  summarise(
-    mean_percent = mean(percent),
-    median_percent = median(percent)
-  ) %>%
-  ungroup()
-
-summary_df$combo_size = as.factor(summary_df$combo_size)
-ggplot(summary_df, aes(x = combo_size, y = median_percent, color = sample, group = sample)) +
-  geom_bar(size = 2) +
-  labs(
-    x = "Number of Combinations",
-    y = "Mean Percent Correct",
-    title = "Mean Percent Correct by Combo Size per Sample",
-    color = "Sample"
-  ) +
-  theme_classic()
-
-ggplot(summary_df, aes(x = sample, y = median_percent, fill = combo_size)) +
-  geom_col(position = position_dodge(width = 0.8)) +
-  labs(
-    x = "Number of Combinations",
-    y = "Median Percent Correct",
-    title = "Median Percent Correct by Combo Size per Sample",
-    fill = "Sample"
-  ) +
-  theme_classic()
 
 ```
 

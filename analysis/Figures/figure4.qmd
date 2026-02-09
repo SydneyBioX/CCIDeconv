@@ -1,0 +1,299 @@
+---
+title: "Figure 4"
+author: "rshreej"
+date: "`r format(Sys.time(), '%B %d, %Y')`"
+format: 
+  html:
+    toc: true
+    toc-depth: 2
+    toc-expand: true
+    number-sections: true
+    theme: united
+    highlight: tango
+    code-fold: true
+    code-tools: true
+    embed-resources: true
+editor: 
+  markdown: 
+    wrap: 72
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r}
+knitr::opts_knit$set(root.dir = here::here())
+```
+
+```{r}
+#| message: false
+#| include: false
+#| warning: false
+library(data.table)
+library(circlize)
+library(ggvenn)
+library(cowplot)
+library(pheatmap)
+library(cowplot)
+library(ComplexHeatmap)
+library(fgsea)
+library(msigdbr)
+library(ggpubr)
+library(clusterProfiler)
+library(enrichplot) 
+library(patchwork)
+library(ggbiplot)
+library(gridGraphics)
+library(gridExtra)
+library(igraph)
+library(RColorBrewer)
+```
+
+```{r}
+#| message: false
+#| include: true
+#| warning: false
+theme_set(
+  theme_classic(base_size = 14) +
+    theme(
+      axis.text = element_text(size = 12),
+      axis.title = element_text(size = 12, face = "bold"),
+      legend.text = element_text(size = 12),
+      legend.title = element_text(size = 12, face = "bold"),
+      plot.title = element_text(size = 12, face = "bold", hjust = 0.5)
+    )
+)
+```
+
+# Figure Caption
+
+Figure 4: Training the CCI deconvolution model without including the
+spatial component as a feature to test applicability to single cell
+data.
+
+A, B Classification and regression metrics on training the model without
+the spatial feature. (A) Performance metrics (B) ROC curve ; left,
+violin plots representing the distribution of the metrics across the
+datasets; right, barplots representing the mean across datasets with
+standard error bars.
+
+C. Distribution of the pairwise difference between the model trainings
+with and without the spatial information on different combinations of
+datasets given a candidate dataset.
+
+D. Heatmap showing the difference in the communication scores when the
+model is applied on a single cell data.
+
+### A, B Classification and regression metrics on training the model without the spatial feature. (A) Performance metrics (B) ROC curve ; left, violin plots representing the distribution of the metrics across the datasets; right, barplots representing the mean across datasets with standard error bars. 
+
+```{r}
+#| message: false
+#| include: true
+#| warning: false
+#| label: roc_curve_metrics_non_spatial
+# AUC curve 
+ddir = "data/processed/single_cell/results_P1spatial_removed/"
+roc_table = fread(file.path(ddir, "roc_tables_P1_trained.csv")) # get roc tables for the output from run_logo trained without spatial information
+xgb_voting = fread(file.path(ddir, "xgboost_voting_metrics_P1_trained.csv"))# processed using extract_metrics in utils.py for the output from run_logo trained without spatial information
+roc_table = inner_join(roc_table, xgb_voting[,.(Dataset, auc)], by = 'Dataset')
+roc_table$Dataset <- factor(roc_table$Dataset,
+  levels = unique(roc_table$Dataset),
+  labels = c("Brain (AD)",
+             "Brain (GL)",
+             "Breast Cancer",
+             "Lung",
+             "Lung (High-Res)",
+             "Lymph Node",
+             "Ovarian",
+             "Pancreas",
+             "Skin")
+)
+
+roc_table$dataset_label <- paste0(roc_table$Dataset, " (AUC=", round(roc_table$auc, 2), ")")
+
+colors = c("#f57b6c", "#d4dda6", "#78c2e3", "#f2a8da", "#f3b773", "#84c3b7", "#fbe79e", "#b8aeea", "#88d7da" )
+ggplot(roc_table, aes(x = `False Positive Rate`, y = `True Positive Rate`, color = dataset_label)) +
+  geom_line(size = 0.5) +
+  geom_abline(slope = 1, intercept = 0, linetype = "dashed", color = "grey40") +
+  labs(x = "False Positive Rate",
+       y = "True Positive Rate") +
+  scale_color_manual(values = colors) +
+  theme_classic(base_size = 20) +
+  theme(legend.position = "right") +
+  guides(color = guide_legend(title = "Dataset"))
+
+ggsave("data/results/Final_Figures/Final_figure4/roc_table.pdf", width =10)
+
+
+xgb_voting = xgb_voting[,c(1,12,15,16,18,19,21)]
+xgb_voting[ , geometric_mean := (auc 
+                                 * (1 - ((cyt_NRMSE + nuc_NRMSE)/2)) 
+                                    * macro_recall 
+                                    * ((`cyt_R²` + `nuc_R²`)/2)
+                                 )**(1/4)]
+
+dt = melt(xgb_voting, id.vars= c('Dataset')) 
+dt$variable <- factor(dt$variable,
+  levels = c("auc","macro_recall","cyt_R²","nuc_R²",
+             # "cyt_RMSE","nuc_RMSE",
+             "cyt_NRMSE","nuc_NRMSE","geometric_mean"),
+  labels = c("AUC",
+             "Recall (Macro)",
+             "R² – Cytoplasm",
+             "R² – Nucleus",
+             # "RMSE – Cytoplasm",
+             # "RMSE – Nucleus",
+             "NRMSE – Cytoplasm",
+             "NRMSE – Nucleus",
+             "Composite metric")
+)
+
+#  metrics 
+p1 = ggplot(dt, aes(x = variable, y = value, fill = variable, color = variable)) +
+  geom_violin(trim = TRUE) +
+  geom_boxplot(width = 0.15, color = "black", fill = "white", outlier.size = 0.8) +
+  scale_fill_manual(values = colors) +
+  scale_color_manual(values = colors) +
+  labs(
+    x = NULL,
+    y = 'Value'
+  ) +
+  theme_classic(base_size = 20) +
+  theme(
+    legend.position = "none",
+    axis.text.x = element_text(angle = 45, hjust = 1,vjust = 1)
+) + coord_cartesian(ylim = c(0,1))
+
+p2 = ggplot(dt, aes(x = variable, y = value)) +
+  stat_summary(fun = mean, geom = "bar", width = 0.7, aes(fill = variable)) +
+  stat_summary(fun.data = mean_sdl, fun.args = list(mult = 1),
+               geom = "errorbar", width = 0.2, linewidth = 0.6) +
+  geom_jitter(width = 0.15, size = 2, alpha = 0.8, color = "black") +
+  scale_fill_manual(values = colors)+ 
+  labs(
+    x = "", y = ""
+  ) +
+  theme_classic(base_size = 20) +
+  theme(legend.position = "none",
+        axis.text.x = element_text(angle = 45, hjust = 1)) + coord_cartesian(ylim = c(0,1))
+
+ggarrange(p1,p2, align = "h")
+
+ggsave("data/results/Final_Figures/Final_figure4/combined_no_spatial.pdf", width = 12)
+```
+
+### C. Distribution of the pairwise difference between the model trainings with and without the spatial information on different combinations of datasets given a candidate dataset. 
+
+```{r}
+#| message: false
+#| include: true
+#| warning: false
+#| label: diff_composite
+
+metrics = fread("data/processed/metrics_all_combinations_trainings_10032025.csv") # run_combinations with and without spatial information and extract_metrics from utils.py
+metrics[ , geometric_mean := (roc_auc 
+                                 * (1 - ((cyt_NRMSE + nuc_NRMSE)/2)) 
+                                    * macro_recall 
+                                    * ((`cyt_R²` + `nuc_R²`)/2)
+                                 )**(1/4)]
+
+df_long <- metrics[,c(9,28,10,11, 12)]
+
+spatial = df_long[condition == "with_spatial",]
+no_spatial = df_long[condition == "without_spatial",]
+#check
+identical(spatial[,3:5], no_spatial[,3:5])
+
+df_long = spatial[,3:5]
+df_long$difference = spatial$geometric_mean - no_spatial$geometric_mean
+df_long = df_long[test_name != "spe_list_lung_cellchat",]
+df_long = df_long[test_name != "spe_list_brainad_cellchat",]
+
+df_long = na.omit(df_long)
+
+df_long$test_name <- factor(df_long$test_name,
+  levels = unique(df_long$test_name),
+  labels = c(
+             "Brain (GL)",
+             "Breast Cancer",
+             "Lung (High-Res)",
+             "Lymph Node",
+             "Ovarian",
+             "Pancreas",
+             "Skin")
+)
+
+colors_box = c("#d4dda6", "#78c2e3", "#f3b773", "#84c3b7", "#fbe79e", "#b8aeea", "#88d7da" )
+
+
+ggplot(df_long, aes(x = test_name, y = difference, fill = test_name)) +
+  geom_boxplot(outliers = TRUE) +
+  scale_fill_manual(values = colors_box) + 
+  # facet_wrap(~metric, scales = "free_y", ncol = 4) +
+  labs( x = "", y = "Difference in Composite metric") + 
+  theme_classic(base_size = 20) +
+  theme(
+    axis.text.x = element_text(angle = 45, size = 16, hjust = 1, vjust = 1),
+    panel.grid = element_blank(),
+    legend.position = "",
+    strip.text = element_text(face = "bold", size = 16, hjust = 0.5),
+axis.text.y = element_text(size = 16)
+  )
+ggsave("data/results/Final_Figures/Final_figure4/boxplot_difference.pdf", width =8)
+
+
+```
+
+### D. Heatmap showing the difference in the communication scores when the
+model is applied on a single cell data.
+
+```{r}
+#| message: false
+#| include: true
+#| warning: false
+#| label: single_cell
+# load output from experiments/run_singlecell.py
+cytoplasm = fread("data/results/predictions/scatter_data_cyt_single_cell.csv") 
+nucleus = fread("data/results/predictions/scatter_data_nuc_single_cell.csv")
+count_function = function(data){
+  shift_val = min(0, min(data$pred))
+  data$score = data$pred - shift_val
+  # compute the network plot
+  links = data.table(
+    source= data$source,
+    target= data$target,
+    importance= data$score
+    )
+  edges_count <- links[, .(count = .N), by = .(source, target)]
+  edges_sum   <- links[, .(sum = sum(importance, na.rm = TRUE)), 
+                     by = .(source, target)]
+  nodes <- unique(c(links$source, links$target))
+  all_pairs <- CJ(source = nodes, target = nodes, unique=TRUE)
+  matrix <- merge(all_pairs, edges_count, by=c("source","target"), all.x=TRUE)
+  matrix <- merge(matrix, edges_sum,   by=c("source","target"), all.x=TRUE)
+  matrix[is.na(count), count := 0]
+  matrix[is.na(sum),   sum   := 0]
+}
+
+data = cytoplasm
+counts_cyt = count_function(data)
+
+data = nucleus
+counts_nuc = count_function(data)
+
+diff_counts <- merge(counts_cyt, counts_nuc, by = c("source","target"), suffixes = c("_cyto","_nuc")) %>%
+  mutate(diff = sum_cyto - sum_nuc)
+
+ggplot(diff_counts, aes(x = source, y = target, fill = diff)) +
+  geom_tile(color = "black") +
+  scale_fill_gradient2(low = "#366785", mid = "#cccccc", high = "#c85200", midpoint = 0,  name = "Interaction score \n difference \n (cytoplasm - nucleus)") +
+  theme_minimal(base_size = 22) +
+  theme(
+    axis.text.x = element_text(angle = 90, size = 20, hjust = 1, vjust = 1),
+    panel.grid = element_blank(),
+    legend.position = "right",
+    strip.text = element_text(face = "bold", size = 20, hjust = 0.5),
+axis.text.y = element_text(size = 20)
+  ) + labs(x = "Sender", y = "Receiver")
+
+ggsave("data/results/Final_Figures/Final_figure4/scnetworks_heatmap.pdf", width = 12)
+```

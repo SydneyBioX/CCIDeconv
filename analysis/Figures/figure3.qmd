@@ -47,7 +47,6 @@ library(reshape2)
 library(ThemePark)
 ```
 
-
 ```{r}
 theme_set(
   theme_classic(base_size = 22) +
@@ -61,14 +60,46 @@ theme_set(
 )
 ```
 
-# Training the lung cancer dataset with 255 varying combinations of the 8 other datasets to check if the dataset choice affects the model stability
+# Figure Caption
 
-## Number of LR pairs correctly classified when training the lung cancer dataset on 255 combinations of the 8 training datasets (raw counts on the left, percentages on the right)
+Figure 3: Assessing model stability by training each dataset with
+varying combinations of the remaining datasets. Each dataset was trained
+using 255 different combinations of the other eight datasets to evaluate
+model stability.
+
+A. Percentage of significant ligand–receptor (LR) pairs correctly
+classified when each dataset was trained with 255 different combinations
+of the other eight datasets.
+
+B. Number of training combinations in which each significant LR pair
+across the nine datasets was correctly classified: left, histogram of
+correctly classified LR pairs; right, violin plots showing the
+distribution of the number of combinations in which each LR pair was
+correctly classified.
+
+C. Counts of LR pairs consistently assigned to difficulty groups. Bars
+represent the number of significant LR pairs that were classified as
+Easy (≥75%), Intermediate (25–75%), or Hard (\<25%) based on the
+proportion of training combinations in which they were correctly
+classified across all datasets. Gray overlays indicate LR pairs that
+were always assigned to the same difficulty group across all
+combinations.
+
+D. Violin plots of performance metrics across the 255 training
+combinations for all nine datasets (outliers with cytoplasmic and
+nuclear 𝑅2 \< 0 are not shown). E. Bar plot of LR pairs classified as
+Hard; fractions shown to the right of each bar indicate the proportion
+of combinations in which each LR pair was labeled as Hard.
+
+
+### A. Percentage of significant ligand–receptor (LR) pairs correctly classified when each dataset was trained with 255 different combinations of the other eight datasets. 
 
 ```{r}
 #| message: false
 #| include: true
 #| warning: false
+#| label: classification_compartments
+# process the outputs from run_compartments using the extract_metrics from utils.py and load
 dir = "data/processed/scores_training/classification_raw"
 files = list.files(dir)[1:9]
 file_list = list()
@@ -171,15 +202,17 @@ ggarrange (p1, p0, common.legend = F)
 ggsave("data/results/Final_Figures/Final_figure3/counts_plot.pdf", width = 8)
 ```
 
-Note: 
-Barplot = “How good is each dataset on average?” Stability 
-Histogram = “How are individual LR pairs spread out in terms of classification performance?”
+### B. Number of training combinations in which each significant LR pair
+across the nine datasets was correctly classified: left, histogram of
+correctly classified LR pairs; right, violin plots showing the
+distribution of the number of combinations in which each LR pair was
+correctly classified.
 
-## Number of times each LR pair was classified correctly 
 ```{r}
 #| message: false
 #| include: true
 #| warning: false
+#| label: combos_correct
 
 # id is not unique
 row <- prediction[, .(value = rowSums(.SD)), .SDcols = 2:256]
@@ -237,33 +270,24 @@ row$sample <- factor(row$sample,
 
 colors = c("#f57b6c", "#d4dda6", "#78c2e3", "#f2a8da", "#f3b773", "#84c3b7", "#fbe79e", "#b8aeea", "#88d7da" )
 
-ggplot(row, aes(x = sample, y = percent, fill = sample)) +
-  geom_violin(width = 0.6) + 
-  geom_boxplot(color = "black", fill = "white", width = 0.05) + 
-  theme(
-    axis.text.x = element_blank(),
-    axis.ticks.x = element_blank()
-  )  + 
-  labs(x = "", y = "Number of correctly \n classified LR pairs") +
-  scale_fill_manual(values = colors) + 
-  theme_classic(base_size = 18) +
-    theme(
-      axis.text = element_text(size = 16),
-      axis.title = element_text(size = 18),
-      legend.text = element_text(size = 18),
-      legend.title = element_text(size = 18),
-      plot.title = element_text(size = 18, hjust = 0.5),
-      axis.text.x = element_text(angle = 45,  hjust = 1, vjust = 1),
-      legend.position = "None"
-    )
-ggsave("data/results/Final_Figures/Supplementary_figures/counts_plots/lr_box_plot.pdf", width = 8)
+fwrite(row, "plot_supplementary7a")
 ```
 
-# Easy vs hard analysis
+### C. Counts of LR pairs consistently assigned to difficulty groups. Bars
+represent the number of significant LR pairs that were classified as
+Easy (≥75%), Intermediate (25–75%), or Hard (\<25%) based on the
+proportion of training combinations in which they were correctly
+classified across all datasets. Gray overlays indicate LR pairs that
+were always assigned to the same difficulty group across all
+combinations. E. Bar plot of LR pairs classified as
+Hard; fractions shown to the right of each bar indicate the proportion
+of combinations in which each LR pair was labeled as Hard.
+
 ```{r}
 #| message: false
 #| include: true
 #| warning: false
+#| label: easy_hard
 
 # Easy is LR pairs with greater than 3rd quartile 
 # Intermediate is LR pairs between 2nd and 3rd quartile
@@ -332,13 +356,19 @@ p2 = ggplot(hard_df, aes(x = reorder(lr_pair, -prop), y = prop)) +
 
 ggsave('data/results/Final_Figures/Final_figure3/hard_prop.pdf', width = 10, height = 12)
 ```
-## Question is how do I check what is APP_CD74. I think the reason for misclassifiction is because there is no prior information and the nucleus score is zero but was there in all the celltpyes in one particular tissue
 
-## Regression and classification metric across the 255 different trainings
+### D. Violin plots of performance metrics across the 255 training
+combinations for all nine datasets (outliers with cytoplasmic and
+nuclear 𝑅2 \< 0 are not shown). 
+
+
 ```{r}
 #| message: false
 #| include: true
 #| warning: false
+#| label: boxplot_metric_compartment
+
+# process the outputs from run_compartments to extract all other metrics 
 class_dir <- "data/processed/scores_training/classification_metrics/"
 
 files = list.files(class_dir)
@@ -438,74 +468,5 @@ ggplot(dt, aes(x = variable, y = value)) +
   labs( x = "", y = "Value") + coord_cartesian(ylim=c(0,1)) 
 ggsave("data/results/Final_Figures/Final_figure3/combo_metrics.pdf", height = 10, width = 8)
 
-
-# AUC split by datasets and the composite metric split by dataset 
-metrics_auc = metrics[, .(roc_auc, sample)]
-ggplot(metrics_auc, aes(x = sample, y = roc_auc)) +
-  geom_violin(width = 1, aes(fill = sample)) + 
-  scale_fill_manual(values = colors) + 
-  geom_boxplot(color = "black", fill = "white", width = 0.2) +
-  theme(
-    axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1),
-    legend.position = ""
-    ) +
-  labs( x = "", y = "Value") + coord_cartesian(ylim=c(0,1))
-
-metrics_auc = metrics_auc %>% group_by(sample) %>% mutate(median = median(roc_auc))
-
 ```
-
-## Confusion matrix of the 256 trainings
-```{r}
-#| message: false
-#| include: true
-#| warning: false
-dir = "data/processed/scores_training/classification_raw/correct"
-files = list.files(dir)
-file_list = list()
-
-for (i in files){
-  # read the files and store in a list
-  dat <- fread(file.path(dir, i))
-  file_list[[i]]= dat
-}
-
-confusion = setDT(do.call(rbind, file_list))
-
-cm <- table(Predicted = confusion$pred, Actual = confusion$true)
-
-# from chatgpt
-# confusion[, c("TN","FP","FN","TP") := {
-#   # remove [ and ], then trim leading/trailing spaces
-#   parts <- trimws(gsub("\\[|\\]", "", cm))
-#   
-#   # split into numeric vectors
-#   vals <- strsplit(parts, "\\s+")
-#   
-#   # turn into matrix (rows = datasets, cols = TN FP FN TP)
-#   m <- t(sapply(vals, function(x) as.numeric(x[x != ""])))
-#   
-#   # return as list of columns so := works
-#   split(m, col(m))
-# }]
-# 
-# confusion_matrix = colSums(confusion[, c("TN","FP","FN","TP")]) 
-# 
-# m <- matrix(c(confusion_matrix[1], confusion_matrix[2],
-#                 confusion_matrix[3], confusion_matrix[4]), nrow = 2, byrow = TRUE)
-# colnames(m) <- c("cell", "cytoplasm/nucleus")
-# rownames(m) <- c("cell", "cytoplasm/nucleus")
-  
-dfm <- melt(cm)
-ggplot(dfm, aes(x = Predicted, y = Actual, fill = value)) +
-  geom_tile(color = "black") +
-  geom_text(aes(label = value), size = 5) +
-  scale_fill_gradient(low = "white", high = "#bc80bd", guide = "none") +
-  labs(x = "Predicted", y = "Truth") +
-  theme_minimal(base_size = 14) + scale_y_discrete(limits = rev) +
-  theme(panel.grid.major = element_blank())
-ggsave("data/results/Final_Figures/Final_figure3/confusion.pdf")
-```
-
-
 
