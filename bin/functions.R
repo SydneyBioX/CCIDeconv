@@ -247,8 +247,9 @@ computeCommunProb_singlecell <- function(object, type = c("triMean", "truncatedM
 #' @param genes_file List. Xenium gene metadata used to identify negative control probes.
 #' @param ref SingleCellExperiment. Reference dataset with cell type labels in for SingleR-based annotation
 #' @param log Boolean, if logcounts are existing in the assay of the reference
+#' @param cellchat Boolean, if set to True only calculates the score, else outputs the formula parts
 #' @return Named list of objects for cell cytoplasm and nucleus regions
-process_st_data <- function(input_filepath, genes_file, ref, log = T){
+process_st_data <- function(input_filepath, genes_file, ref, log = T, cellchat = TRUE){
   # read into molecule experiment object
   me = read_Xenium(input_filepath, keepCols = "essential", addBoundaries = c("cell", "nucleus"))
 
@@ -313,11 +314,16 @@ process_st_data <- function(input_filepath, genes_file, ref, log = T){
   
   # communication scores
   future::plan("multisession", workers = 4)
+  if (cellchat == TRUE){
   obj = lapply(spe_list, run_cellchat)
+  } else {
+  obj = lapply(spe_list, run_cellchat_formula)
+  }
   return (obj)
 }
 
 # gene id to symbol map
+#' @return give a mapping between gene id and gene symbol
 geneid_to_symbol <- function(){
   ensembl <- useEnsembl(biomart = "genes", dataset = "hsapiens_gene_ensembl")
   map = getBM(attributes = c('ensembl_gene_id', 'hgnc_symbol'),
@@ -325,6 +331,9 @@ geneid_to_symbol <- function(){
   return(map)
 }
 
+#' Function to add hgnc symbol to rownames of reference single cell experiment 
+#'@param ref_dataset single cell experiment reference to be mapped
+#' @return retruns an single cell experiment object with the symbols as rownames
 mapping_function <- function(ref_dataset){
   map = geneid_to_symbol()
   mapped_symbols <- map$hgnc_symbol[match(rownames(ref_dataset), map$ensembl_gene_id)]

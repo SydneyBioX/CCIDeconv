@@ -18,6 +18,37 @@ import random
 
 random.seed(42)
 def main(args):
+    """
+    run_singlecell.py
+
+    Trains hierarchical classification and regression models on spatial transcriptomics
+    training data and generates predictions for an external single-cell test dataset.
+
+    Pipeline overview:
+    1. Load and preprocess training data.
+    2. Remove samples known to be dominated by spatial effects.
+    3. Extract features and labels using `process_data`.
+    4. Align training and test feature spaces.
+    5. Encode categorical variables using CatBoostEncoder.
+    6. Perform Bayesian hyperparameter optimization for:
+    - Random Forest classifier
+    - XGBoost classifier
+    - XGBoost regressors (cytoplasmic and nuclear targets)
+    7. Train hierarchical classifier and regressors.
+    8. Generate predictions on the provided test dataset.
+    9. Save prediction outputs to disk.
+
+    Outputs:
+        - classification_predictions.joblib
+        - regression_predictions.joblib
+
+    Example usage:
+    python experiments/run_singlecell.py \
+        --data_path data/training_data/training_data.csv \
+        --categorical_columns lr_pair,source,target,pathway_name,annotation,ligand.family,ligand.keyword,ligand.secreted_type,ligand.transmembrane,receptor.family,receptor.keyword,receptor.surfaceome_main,receptor.surfaceome_sub,receptor.adhesome,receptor.secreted_type,receptor.transmembrane \
+        --exclude_columns cyt_pval,cyt_pspatial,cyt_score,sample,cell_pval,cell_pspatial,cell_score,tissue,is_neurotransmitter,ligand_location_cellchat,receptor_location_cellchat,ligand_location_hpa,receptor_location_hpa,nuc_pval,nuc_pspatial,nuc_score,ligand,receptor,labels\
+        --test_data_path data/test_data/single_cell_test.csv
+    """
     df = pd.read_csv(args.data_path)
     # remove samples whose separation was influenced mainly by spatial features
     df = df[df['sample']!= 'spe_list_lung_cellchat']

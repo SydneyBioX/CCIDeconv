@@ -1,9 +1,17 @@
 # inference.py
 import numpy as np
 from utils import classification_metrics, regression_metrics, test_prediction
+
+"""
+inference.py
+
+Provides hierarchical classifier and regressor interfaces for model evaluation and prediction.
+Wraps trained models to generate predictions, compute performance metrics.
+"""
+
 class HierarchicalClassifier:
     """
-    Handles classification step
+        Wrapper for classification models to perform evaluation and prediction.
     """
     def __init__(self, classifier_wrapper):
         self.classifier_wrapper = classifier_wrapper
@@ -34,7 +42,7 @@ class HierarchicalClassifier:
 
 class HierarchicalRegressor:
     """
-    Handles regression step on predicted positives
+    Wrapper for regression models to evaluate and predict cytoplasmic and nuclear targets.
     """
     def __init__(self, reg_cyt_wrapper, reg_nuc_wrapper):
         self.reg_cyt_wrapper = reg_cyt_wrapper

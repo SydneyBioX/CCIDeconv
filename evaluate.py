@@ -13,6 +13,13 @@ from inference import HierarchicalClassifier, HierarchicalRegressor
 import random
 random.seed(42)
 
+"""
+evaluate.py
+
+Train hierarchical classification and regression models on a user-provided training dataset
+and generate predictions for an external test dataset. Predictions are saved as joblib files.
+
+"""
 def main(args):
     train = pd.read_csv(args.data_path)
     test = pd.read_csv(args.test_data_path)

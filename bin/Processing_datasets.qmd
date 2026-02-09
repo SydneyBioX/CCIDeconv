@@ -119,13 +119,16 @@ reference_vec = c(brain_ad_ref, brain_gl_ref, breat_cancer_ref, lung_ref, lung_h
 ```{r}
 log_vec <- rep(TRUE, length(input_paths))
 log_vec[8] <- FALSE
+cellchat_vec <- rep(TRUE, length(input_paths))
+
 
 results_list <- Map(
   process_st_data,
   input_filepath = input_paths,
   genes_file     = genes_file,
   ref            = reference_vec,
-  log            = log_vec
+  log            = log_vec,
+  cellchat       = cellchat_vec
 )
 
 # save
@@ -262,4 +265,40 @@ setnames(df, old = "Main location", new = "receptor.location_hpa")
 df = df[cell_pval<0.05,]
 write_csv(df,'data/test_data/raw_single_cell.csv')
 
+```
+
+#### Obtaining the individual cellchat formula parts
+
+```{r}
+source(compute_formula_parts.R)
+log_vec <- rep(TRUE, length(input_paths))
+log_vec[8] <- FALSE
+cellchat_vec <- rep(FALSE, length(input_paths))
+
+results_list <- Map(
+  run_cellchat_formula,
+  input_filepath = input_paths,
+  genes_file     = genes_file,
+  ref            = reference_vec,
+  log            = log_vec, 
+  cellchat       = cellchat_vec
+)
+
+# save
+names = c("Brain_ad",
+             "Brain_gl",
+             "Breast_cancer",
+             "Lung",
+             "Lung_High_Res",
+             "LymphNode",
+             "Ovarian",
+             "Pancreas",
+             "Skin")
+for (i in seq_along(results_list)) {
+  file_name <- paste0("dataset_", names[i], ".rds")
+  file_path <- file.path("data/communication_scores", file_name)
+  
+  # Save the list element
+  saveRDS(results_list[[i]], file = file_path)
+}
 ```

@@ -19,7 +19,7 @@ library(biomaRt)
 #' @param spe A SpatialExperiment object containing logcounts and spatialCoords.
 #' @return A CellChat object with computed communication probabilities.
 #' @details This function uses the human CellChatDB and truncatedMean for signaling inference. Any other database can also be used
-run_cellchat <- function(spe){
+run_cellchat_formula <- function(spe){
   # Setup Parameters 
   conversion.factor = 1
   spot.size = 10 
@@ -42,7 +42,7 @@ run_cellchat <- function(spe){
   options(future.globals.maxSize = 250 * 1024^3)
   cellchat <- CellChat::identifyOverExpressedInteractions(cellchat)
   # Compute the communication scores using a modified statistics
-  cellchat <- computeCommunProbmod(cellchat, type = "truncatedMean", trim = 0.1,
+  cellchat <- computeformulaparts(cellchat, type = "truncatedMean", trim = 0.1,
                                    distance.use = TRUE, interaction.range = 100, scale.distance = 1,
                                    contact.dependent = TRUE, contact.range = 50, nboot = 20, population.size = TRUE)
   cellchat <- filterCommunication(cellchat, min.cells = 10)
