@@ -1,1 +1,39 @@
-# Subcellular CCI Deconvolution 
+# Quantifying Subcellular Compartment-Specific Cell–Cell Communication Using a Hierarchical Machine Learning Framework
+
+### Description
+A computational framework for inferring subcellular cell–cell interactions (CCI) from high-resolution spatial transcriptomics data and single-cell transcriptomics.
+This repository provides the model, analysis scripts, and example workflows to:
+
+Deconvolute CCI to subcellular regions from traditional cell-resolved transcriptomics data using a hierarchical machine learning framework.
+
+Reproduce analyses and generate figures from publicly available 10X Xenium datasets across multiple human tissues.
+
+The framework enables researchers to pinpoint where signaling is initiated and better interpret downstream pathway activity, offering insights into development, homeostasis, and disease progression.
+
+!Description](figures/schematic_final.png)
+
+
+## Model Architecture
+
+The model distinguishes nuclear vs cytoplasmic CCI signals using a hierarchical neural network. Inputs are communication scores; outputs are deconvoluted CCI scores.
+
+![Model Architecture](figures/model_outline.png)
+
+## Installation / Requirements
+
+To run the model on example data or your own dataset:
+1. Clone the repository 
+```bash
+git clone https://github.com/SydneyBioX/CCIDeconv.git
+```
+2. Run the model on your own data or with the example data
+
+``` bash
+ cd CCIDeconv
+ python evaluate.py \
+     --data_path example/example_train_data.csv \
+     --categorical_columns lr_pair,source,target,pathway_name,annotation,ligand.family,ligand.keyword,ligand.secreted_type,ligand.transmembrane,receptor.family,receptor.keyword,receptor.surfaceome_main,receptor.surfaceome_sub,receptor.adhesome,receptor.secreted_type,receptor.transmembrane \
+     --exclude_columns cyt_pval,cyt_pspatial,cyt_P1,sample,cell_pval,cell_P1,tissue,is_neurotransmitter,ligand_location_cellchat,receptor_location_cellchat,ligand_location_hpa,receptor_location_hpa,nuc_pval,nuc_pspatial,nuc_P1,ligand,receptor\
+     --test_data_path example/example_test_data.csv
+``
+   
