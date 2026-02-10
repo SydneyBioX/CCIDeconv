@@ -10,8 +10,8 @@ Reproduce analyses and generate figures from publicly available 10X Xenium datas
 
 The framework enables researchers to pinpoint where signaling is initiated and better interpret downstream pathway activity, offering insights into development, homeostasis, and disease progression.
 
-![Description](figures/schematic_final.png)
-
+<img src="figures/schematic_final.png" alt="Description" width="300">
+*Figure 1: Schematic of the CCI Deconvolution model architecture.*
 
 ## Model Architecture
 
@@ -35,5 +35,8 @@ git clone https://github.com/SydneyBioX/CCIDeconv.git
      --categorical_columns lr_pair,source,target,pathway_name,annotation,ligand.family,ligand.keyword,ligand.secreted_type,ligand.transmembrane,receptor.family,receptor.keyword,receptor.surfaceome_main,receptor.surfaceome_sub,receptor.adhesome,receptor.secreted_type,receptor.transmembrane \
      --exclude_columns cyt_pval,cyt_pspatial,cyt_P1,sample,cell_pval,cell_P1,tissue,is_neurotransmitter,ligand_location_cellchat,receptor_location_cellchat,ligand_location_hpa,receptor_location_hpa,nuc_pval,nuc_pspatial,nuc_P1,ligand,receptor\
      --test_data_path example/example_test_data.csv
-``
+```
+3. (Optional) Explore the notebook:
+
+If you prefer an interactive workflow, you can open example/example_data.ipynb in Jupyter Notebook. It reproduces the same steps as evaluate.py and shows example outputs.
    
