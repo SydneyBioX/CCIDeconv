@@ -17,7 +17,7 @@ The framework enables researchers to pinpoint where signaling is initiated and b
 
 The model distinguishes nuclear vs cytoplasmic CCI signals using a hierarchical neural network. Inputs are communication scores; outputs are deconvoluted CCI scores.
 
-![Model Architecture](figures/model_outline.png)
+![Model Architecture](figures/Model_outline.png)
 
 ## Installation / Requirements
 
