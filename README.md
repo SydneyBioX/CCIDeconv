@@ -1,6 +1,6 @@
-# Quantifying Subcellular Compartment-Specific Cell–Cell Communication Using a Hierarchical Machine Learning Framework
+### Quantifying Subcellular Compartment-Specific Cell–Cell Communication Using a Hierarchical Machine Learning Framework
 
-### Description
+#### Description
 A computational framework for inferring subcellular cell–cell interactions (CCI) from high-resolution spatial transcriptomics data and single-cell transcriptomics.
 This repository provides the model, analysis scripts, and example workflows to:
 
@@ -13,13 +13,13 @@ The framework enables researchers to pinpoint where signaling is initiated and b
 <img src="figures/schematic_final.png" alt="Description" width="500">
 Figure 1: Schematic of the CCI Deconvolution model architecture.
 
-## Model Architecture
+#### Model Architecture
 
 The model distinguishes nuclear vs cytoplasmic CCI signals using a hierarchical neural network. Inputs are communication scores; outputs are deconvoluted CCI scores.
 
 ![Model Architecture](figures/Model_outline.png)
 
-## Installation / Requirements
+#### Installation / Requirements
 
 To run the model on example data or your own dataset:
 1. Clone the repository 
