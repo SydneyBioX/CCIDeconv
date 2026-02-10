@@ -10,8 +10,8 @@ Reproduce analyses and generate figures from publicly available 10X Xenium datas
 
 The framework enables researchers to pinpoint where signaling is initiated and better interpret downstream pathway activity, offering insights into development, homeostasis, and disease progression.
 
-<img src="figures/schematic_final.png" alt="Description" width="300">
-*Figure 1: Schematic of the CCI Deconvolution model architecture.*
+<img src="figures/schematic_final.png" alt="Description" width="500">
+Figure 1: Schematic of the CCI Deconvolution model architecture.
 
 ## Model Architecture
 
