@@ -84,7 +84,7 @@ def main(args):
             random_state=seed,
             verbose=0
         )
-    xgbcBO.maximize(init_points=1,n_iter=1)
+    xgbcBO.maximize(init_points=3,n_iter=30)
     rf_int_params = ['n_estimators','max_depth','min_samples_split','min_samples_leaf']
     rf_params = cast_params( xgbcBO.max['params'], int_params=rf_int_params)
     xgbcBO = BayesianOptimization(
@@ -94,7 +94,7 @@ def main(args):
         verbose=0
     )
     xgbcBO.set_gp_params(**gp_params)
-    xgbcBO.maximize(init_points=1,n_iter=1)
+    xgbcBO.maximize(init_points=3,n_iter=30)
     xgb_int_params = ['n_estimators', 'max_depth']
     xgb_params = cast_params( xgbcBO.max['params'], int_params=xgb_int_params)
     # fit the classifier with the best parameters
@@ -110,7 +110,7 @@ def main(args):
     verbose=0
     )
     xgb_bo.set_gp_params(**gp_params)
-    xgb_bo.maximize(init_points=1, n_iter=1)
+    xgb_bo.maximize(init_points=3, n_iter=30)
     reg_cyt_params = cast_params(xgb_bo.max['params'], int_params=xgb_int_params)  
     reg_cyt_wrapper = train_regressor(X_train[mask_train,:], y_cyt.to_numpy()[mask_train], reg_cyt_params, X_val = None, y_val = None)
     xgb_bo = BayesianOptimization(
@@ -120,7 +120,7 @@ def main(args):
     verbose=0
     )
     xgb_bo.set_gp_params(**gp_params)
-    xgb_bo.maximize(init_points=1, n_iter=1)
+    xgb_bo.maximize(init_points=3, n_iter=30)
     reg_nuc_params = cast_params(xgb_bo.max['params'], int_params=xgb_int_params) 
     reg_nuc_wrapper = train_regressor(X_train[mask_train,:], y_nuc.to_numpy()[mask_train], reg_nuc_params, X_val = None, y_val = None)
     # get the predicted values for the test set

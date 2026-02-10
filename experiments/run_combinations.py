@@ -93,7 +93,6 @@ def main(args):
                     verbose=0
                 )
             xgbcBO.maximize(init_points=3,n_iter=30)
-            xgbcBO.maximize(init_points=3,n_iter=30)
             rf_int_params = ['n_estimators','max_depth','min_samples_split','min_samples_leaf']
             rf_params = cast_params( xgbcBO.max['params'], int_params=rf_int_params)
             xgbcBO = BayesianOptimization(
