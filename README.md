@@ -38,5 +38,5 @@ git clone https://github.com/SydneyBioX/CCIDeconv.git
 ```
 3. (Optional) Explore the notebook:
 
-If you prefer an interactive workflow, you can open example/example_data.ipynb in Jupyter Notebook. It reproduces the same steps as evaluate.py and shows example outputs.
+If you prefer an interactive workflow, you can open example/example_run.ipynb in Jupyter Notebook. It reproduces the same steps as evaluate.py and shows example outputs.
    
