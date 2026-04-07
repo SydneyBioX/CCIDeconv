@@ -1,14 +1,14 @@
 ### Quantifying Subcellular Compartment-Specific Cell–Cell Communication Using a Hierarchical Machine Learning Framework
 
 #### Description
-A computational framework for inferring subcellular cell–cell interactions (CCI) from high-resolution spatial transcriptomics data and single-cell transcriptomics.
+A computational model for inferring subcellular cell–cell interactions (CCI) from high-resolution spatial transcriptomics data and single-cell transcriptomics.
 This repository provides the model, analysis scripts, and example workflows to:
 
 Deconvolute CCI to subcellular regions from traditional cell-resolved transcriptomics data using a hierarchical machine learning framework.
 
 Reproduce analyses and generate figures from publicly available 10X Xenium datasets across multiple human tissues.
 
-The framework enables researchers to pinpoint where signaling is initiated and better interpret downstream pathway activity, offering insights into development, homeostasis, and disease progression.
+The model enables researchers to pinpoint where signaling is initiated and better interpret downstream pathway activity, offering insights into development, homeostasis, and disease progression.
 
 <img src="figures/schematic_final.png" alt="Description" width="500">
 Figure 1: Schematic of the subcellular CCI.
