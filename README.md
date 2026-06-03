@@ -1,4 +1,4 @@
-### Quantifying Subcellular Compartment-Specific Cell–Cell Communication Using a Hierarchical Machine Learning Framework
+### CCIDeconv: Hierarchical model for deconvolution of subcellular cell-cell interactions in single-cell data
 
 #### Description
 A computational model for inferring subcellular cell–cell interactions (CCI) from high-resolution spatial transcriptomics data and single-cell transcriptomics.
@@ -26,7 +26,7 @@ To run the model on example data or your own dataset:
 ```bash
 git clone https://github.com/SydneyBioX/CCIDeconv.git
 ```
-2. Run the model on your own data or with the example data
+2. Run the model on your own data or with the example data. Model weights can be downloaded from https://doi.org/10.5281/zenodo.20518900 
 
 ``` bash
  cd CCIDeconv
