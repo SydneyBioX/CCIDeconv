@@ -1,0 +1,10 @@
+bayesian-optimization
+category_encoders
+joblib
+matplotlib
+numpy
+pandas
+scikit-learn
+scipy
+seaborn
+xgboost
