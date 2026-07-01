@@ -29,7 +29,7 @@ cd CCIDeconv
 pip install -r requirements.txt
 ```
 Additional R Dependencies: If you plan on running the downstream analysis scripts and reproducing the figures in the manuscript, you may need to manually install additional R packages.
-Depending on your environment, additional packages or dependencies may need to be installed manually if you encounter any missing module errors.
+Depending on your environment, additional packages or dependencies may need to be installed manually.
 
 2. Run the model on your own data or with the example data. Model weights can be downloaded from https://doi.org/10.5281/zenodo.20518900 
 
