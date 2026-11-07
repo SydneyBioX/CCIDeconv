@@ -44,4 +44,7 @@ Depending on your environment, additional packages or dependencies may need to b
 3. (Optional) Explore the notebook:
 
 If you prefer an interactive workflow, you can open example/example_run.ipynb in Jupyter Notebook. It reproduces the same steps as evaluate.py and shows example outputs.
-   
+
+```{r session-info}
+sessionInfo()
+```
