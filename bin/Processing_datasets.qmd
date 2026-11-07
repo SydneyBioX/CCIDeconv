@@ -210,7 +210,7 @@ setnames(df, old = "Main location", new = "receptor.location_hpa")
 
 # remove non significant interactions
 train_data = train_data[cell_pval<0.05,]
-fwrite(train_data, "data/raw_data.csv")
+fwrite(train_data, "data/training_data.csv")
 
 ```
 
@@ -307,7 +307,7 @@ for (i in seq_along(results_list)) {
 }
 ```
 
-## Processing the CosMx Dataset
+#### Processing the CosMx Dataset
 
 ```{r}
 library(readr)

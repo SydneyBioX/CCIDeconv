@@ -581,7 +581,7 @@ mapping_function <- function(ref_dataset){
   mapped_symbols <- map$hgnc_symbol[match(rownames(ref_dataset), map$ensembl_gene_id)]
   mapped_symbols <- ifelse(is.na(mapped_symbols),rownames(ref_dataset),mapped_symbols)
   newrownames <- make.unique(mapped_symbols)
-  rownames(ref_dataset) <- new_rownames
+  rownames(ref_dataset) <- newrownames
   names(assays(ref_dataset))[1] = "counts"
   ref_dataset$ident = ref_dataset$cell_type
   return(ref_dataset)
