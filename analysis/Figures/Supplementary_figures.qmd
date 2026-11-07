@@ -20,6 +20,7 @@ editor_options:
   chunk_output_type: console
 ---
 
+**Note: Figures are reordered**
 ```{r}
 knitr::opts_knit$set(root.dir = here::here())
 ```
@@ -1156,6 +1157,500 @@ network <- graph_from_data_frame(d=edges_sum, vertices=nodes, directed=F)
 plot(network, vertex.color=coul, edge.width=0.2*(E(network)$weight), main = "Nuc Network (sum):", layout=layout.circle)
 plots_sum = recordPlot()
 dev.off()
+
+
+```
+
+## Sensitivity analysis
+
+```{r}
+metrics = fread("data/processed/revisions/sensitivity_metrics.csv")
+metrics[ , `Composite Metric` := (auc * (1 - ((cyt_NRMSE + nuc_NRMSE)/2)) 
+                         * macro_recall 
+                         * ((`cyt_R²` + `nuc_R²`)/2)
+)**(1/4)]
+
+
+# 1. Prepare data frame and drop unwanted weighted metrics
+df <- as.data.frame(metrics)
+
+metric_cols <- c(
+  "Class_0 F1", "Class_0 Precision", "Class_0 Recall",
+  "Class_1 F1", "Class_1 Precision", "Class_1 Recall", 
+  "accuracies", "auc",
+  "macro_f1", "macro_precision", "macro_recall",
+  "cyt_R²", "cyt_RMSE", "cyt_NRMSE",
+  "nuc_R²", "nuc_RMSE", "nuc_NRMSE",
+  "Composite Metric"
+)
+
+# Subset and flip error metrics so higher values always mean better performance
+df_sub <- df[, c("Dataset", metric_cols)]
+colnames(df_sub) = c("Dataset",
+  "F1 (Class 0)", "Precision (Class 0)", "Recall (Class 0)",
+  "F1 (Class 1)", "Precision (Class 1)", "Recall (Class 1) ", 
+  "Accuracy", "AUC",
+  "Macro F1", "Macro Precision", "Recall (Macro)",
+  "R²- Cytoplasm", "RMSE - Cytoplasm", "NRMSE - Cytoplasm",
+  "R² - Nucleus", "RMSE - Nucleus", "NRMSE - Nucleus",
+  "Composite Metric"
+)
+# 2. Reshape from wide to long format for ggplot
+df_long <- pivot_longer(
+  df_sub, 
+  cols = colnames(df_sub)[-1], 
+  names_to = "Metric", 
+  values_to = "Performance"
+)
+
+df_long$Metric <- factor(df_long$Metric, levels = colnames(df_sub))
+
+# 4. Create the boxplot
+ggplot(df_long, aes(x = Metric, y = Performance, fill = Metric)) +
+  geom_boxplot(alpha = 0.8, outlier.shape = 21, outlier.size = 2) +
+  theme_classic(base_size = 12) +
+  theme(
+    axis.text.x = element_text(angle = 90, hjust = 1, vjust = 1),
+    legend.position = "none",
+    panel.grid = element_blank(),
+  ) +
+  scale_fill_manual(values = c("#1f77b4","#3a99d9","#5cb0e0","#7fc7e6","#a3d5eb","#c7e3f0","#fdb462","#fec978","#fee0a3", "#fccb53", "#fdd575","#9467bd","#b087d0","#eb98fd", "#eea9fe", "#f5cbfe", "#dd53fc", "#fae79e")) +
+  labs(
+    x = "Metric",
+    y = "Performance Score",
+    fill = "Metric Group"
+  )
+ggsave("data/results/Final_Figures/Supplementary_figures/revisions/sensitiivity.pdf", width =7)
+ggsave("data/results/Final_Figures/Supplementary_figures/revisions/sensitiivity.png", width =7)
+
+```
+
+## Baseline allocations
+
+```{r}
+library(data.table)
+library(ggplot2)
+metrics = fread("CCIDeconv/supplementary_analysis/results/mean_allocation_ablations/dataset_level_comparison.csv")
+metrics[, `Composite Metric` := (
+  auc * (1 - ((cyt_nrmse + nuc_nrmse) / 2)) * 
+    macro_recall * 
+    ((cyt_r2 + nuc_r2) / 2)
+)^(1 / 4)]
+
+metric_cols <- c("auc", "macro_recall", "cyt_r2", "nuc_r2", "cyt_nrmse", "nuc_nrmse", "Composite Metric")
+
+metrics_long <- melt(
+  metrics,
+  measure.vars = metric_cols,
+  variable.name = "Metric",
+  value.name = "Value"
+)
+
+metrics_long = metrics_long[,c(1,2,3,6,7)]
+
+cascading_metrics <- fread("CCIDeconv/supplementary_analysis/results/cascading_metrics/cascading_metrics_dataset_level.csv")
+cascading_metrics = cascading_metrics[cascading_metrics$evaluation_mode == "End-to-End (Physical Zero)" & cascading_metrics$metric %in% c("cyt_nrmse", "nuc_nrmse", "cyt_r2", "nuc_r2"),]
+cascading_metrics = cascading_metrics[, c(1,2,4,3,5)]
+colnames(cascading_metrics) = colnames(metrics_long)
+
+# add the auc and macro recall values to the cascading metrics 
+cascading_metrics_long = rbind(cascading_metrics, metrics_long[method== "CCIDeconv" & Metric %in% c("auc", "macro_recall")])
+cascading_metrics_long$method = "End-End"
+id_cols <- setdiff(names(cascading_metrics), c("Metric", "Value"))
+cascading_wide <- dcast(
+  cascading_metrics_long,
+  as.formula(paste(paste(id_cols, collapse = " + "), "~ Metric")),
+  value.var = "Value"
+)
+cascading_wide[, `Composite Metric` := (
+  auc * (1 - ((cyt_nrmse + nuc_nrmse) / 2)) * 
+    macro_recall * 
+    ((cyt_r2 + nuc_r2) / 2)
+)^(1 / 4)]
+
+metric_cols_cascading <- c("auc", "macro_recall", "cyt_r2", "nuc_r2", "cyt_nrmse", "nuc_nrmse", "Composite Metric")
+cascading_long <- melt(
+  cascading_wide,
+  measure.vars = c(4:10),
+  variable.name = "Metric",
+  value.name = "Value"
+)
+
+metrics_long_new = rbind(cascading_long, metrics_long)   
+
+
+metrics_long_new$Metric <- factor(metrics_long_new$Metric,
+                      levels = c("auc","macro_recall","cyt_r2","nuc_r2",
+                                 # "cyt_RMSE","nuc_RMSE",
+                                 "cyt_nrmse","nuc_nrmse","Composite Metric"),
+                      labels = c("AUC",
+                                 "Recall (Macro)",
+                                 "R² – Cytoplasm",
+                                 "R² – Nucleus",
+                                 # "RMSE – Cytoplasm",
+                                 # "RMSE – Nucleus",
+                                 "NRMSE – Cytoplasm",
+                                 "NRMSE – Nucleus",
+                                 "Composite metric"))
+metrics_long_new$procedure = factor(metrics_long_new$procedure, levels = c("SP", "ScP"))
+metrics_long_new = metrics_long_new[method != "CCIDeconv without whole-cell score"]
+
+metrics_long_new$method <- factor(metrics_long_new$method,
+                      levels = c("CCIDeconv","End-End","Direct assignment","HPA proportional split",
+                                 # "cyt_RMSE","nuc_RMSE",
+                                 "Mean allocation"))
+
+library(rstatix)
+ref_method <- "CCIDeconv"
+other_methods <- setdiff(unique(metrics_long_new$method), ref_method)
+ref_pairs <- lapply(other_methods, function(x) c(ref_method, x))
+
+stat_data <- metrics_long_new %>%
+  group_by(procedure, Metric) %>%
+  wilcox_test(Value ~ method, comparisons = ref_pairs) %>%
+  adjust_pvalue(method = "fdr") %>%
+  add_significance("p.adj") %>%
+  add_y_position(fun = "max", step.increase = 0.05) # Removed the invalid argument
+stat_data_filtered <- stat_data %>% filter(p.adj.signif != "ns")
+ggplot(metrics_long_new, aes(x = method, y = Value, fill = method)) +
+  geom_violin(width = 1) + 
+  geom_boxplot(width = 0.15, color = "black", fill = "beige", outlier.size = 0.8) +
+  facet_wrap(procedure ~ Metric, nrow = 2) +
+  scale_fill_manual(values = c(
+    "#A8D5BA",  # Pastel green
+    "#79C7A5",  # Soft mint green
+    "#D0E8D0",  # Pale sage green
+    "#A7C7E7",  # Pastel blue
+    "#C5DDF5"   # Powder blue
+  )) +
+  stat_pvalue_manual(
+    stat_data_filtered, 
+    label = "p.adj.signif", 
+    tip.length = 0.01,
+    hide.ns = TRUE
+  ) +
+  labs(
+    x = NULL,
+    y = 'Value'
+  ) +
+  theme_bw(base_size = 13) +
+  theme(
+    axis.text.x = element_text(angle = 90, size = 13, hjust = 1, vjust = 0.5),
+    legend.position = "",
+    panel.grid = element_blank()
+  ) + 
+  coord_cartesian(ylim = c(0, 7)) # Cleanly bounded between 0 and 1.35!
+ggsave("data/results/Final_Figures/Supplementary_figures/revisions/baseline_allocations.pdf", width =13, height = 10)
+ggsave("data/results/Final_Figures/Supplementary_figures/revisions/baseline_allocations.png", width =13, height = 10, dpi = 300)
+
+# ablation result to go in table
+metrics = metrics[method == "CCIDeconv without whole-cell score"]
+summary(metrics)
+```
+
+## Localization validation
+
+```{r}
+data = fread("CCIDeconv/supplementary_analysis/results/validation/per_region_validation_summary.csv")
+data = data[`Benchmark Context` != "Real Single-Cell Data (scRNA-seq Lung)",]
+data$`Benchmark Context` = case_when(data$`Benchmark Context` == "ScP (Single-cell Procedure LOGO-CV)" ~ 'ScP',
+                                     data$`Benchmark Context` == "SP (Spatial LOGO-CV)" ~ 'SP')
+
+d <- copy(data)
+setnames(d,
+  c("Benchmark Context","Dataset Name","Selection","Predicted Compartment",
+    "Events Evaluated (N)","Tier 1 Supported Events","Tier 2 Supported Events",
+    "Total Supported Events","Total Support (%)"),
+  c("context","dataset","selection","compartment","n","t1","t2","total","total_pct"))
+d[, selection := factor(selection, c("Top 10","Top 20","All Events"))]
+
+th <- theme_classic(base_size = 11) +
+  theme(strip.background = element_blank(), strip.text = element_text(face = "bold"))
+
+d$context = factor(d$context, levels = d$context%>%unique())
+
+# A: per-dataset total support
+d$context <- factor(d$context, levels = c("SP", "ScP"))
+
+ggplot(d, aes(x = selection, y = total_pct, fill = compartment)) +
+  geom_boxplot(
+    aes(group = interaction(selection, compartment)),
+    width = 0.5,
+    outlier.shape = NA,
+    linewidth = 0.5,
+    position = position_dodge(width = 0.7),
+    color = "gray50"
+  ) +
+  geom_point(
+    position = position_jitterdodge(
+      jitter.width = 0.12,
+      dodge.width = 0.7
+    ),
+    size = 1.8,
+    alpha = 0.7,
+    color = "gray50"
+  ) +
+  geom_text(
+    data = p,
+    aes(
+      x = selection,
+      y = 102,
+      label = lab,
+      group = compartment
+    ),
+    inherit.aes = FALSE,
+    colour = "black",
+    position = position_dodge(width = 1),
+    vjust = 0,
+    size = 3
+  ) +
+  facet_wrap(~context, nrow = 1) +
+  scale_fill_manual(
+    values = c(
+      "Cytoplasm" = "#f47c6e",
+      "Nucleus" = "#b6acd3"
+    )
+  ) +
+  scale_y_continuous(
+    limits = c(0, 110),
+    breaks = seq(0, 100, 25),
+    expand = c(0, 0)
+  ) +
+  labs(
+    x = NULL,
+    y = "Events with independent support (%)",
+    fill = "Compartment"
+  ) +
+  theme_classic() +
+  theme(legend.position = "top")
+ggsave("data/results/Final_Figures/Supplementary_figures/revisions/validation_evidence.png", width = 10)
+ggsave("data/results/Final_Figures/Supplementary_figures/revisions/validation_evidence.pdf", width = 10)
+```
+
+# domain shift analysis
+
+```{r}
+df <- read_csv("~/Library/CloudStorage/OneDrive-TheUniversityofSydney(Students)/University of Sydney/PhD projects/main/Cell Cell Communication/server/cell_cell_commuication/CCIDeconv/supplementary_analysis/results/domain_shift_analysis/domain_shift_dataset_level.csv")
+
+library(rstatix)   # install.packages("rstatix") if needed
+
+# one value per dataset per shift (averages the 5 noise repeats), so the paired test is valid
+dd <- d %>%
+  group_by(dataset, panel, shift, family) %>%
+  summarise(value = mean(value, na.rm = TRUE), .groups = "drop")
+
+# paired Wilcoxon of each shift vs Baseline, Holm-adjusted within each panel
+stats <- dd %>%
+  arrange(dataset) %>%                       # same dataset order in every group
+  group_by(panel) %>%
+  pairwise_wilcox_test(value ~ shift, ref.group = "Baseline",
+                       paired = TRUE, p.adjust.method = "holm") %>%
+  ungroup() %>%
+  filter(p.adj < 0.05)
+
+# put a label above the box of each significant shift
+ypos <- dd %>%
+  group_by(panel, shift) %>% summarise(y = max(value, na.rm = TRUE), .groups = "drop") %>%
+  mutate(panel = as.character(panel), shift = as.character(shift))
+
+sig <- stats %>%
+  mutate(panel = as.character(panel),
+         shift = ifelse(group1 == "Baseline", group2, group1)) %>%
+  left_join(ypos, by = c("panel", "shift")) %>%
+  mutate(panel = factor(panel, levels = levels(dd$panel)),
+         shift = factor(shift, levels = levels(dd$shift)))
+
+p <- ggplot(dd, aes(shift, value, fill = family)) +
+  geom_boxplot(outlier.shape = NA, alpha = 0.8, width = 0.65, linewidth = 0.35) +
+  geom_jitter(width = 0.12, height = 0, alpha = 0.3, size = 0.9, show.legend = FALSE) +
+  geom_text(data = sig, aes(shift, y, label = p.adj.signif), inherit.aes = FALSE,
+            vjust = -0.3, size = 4, color = "red") +
+  facet_wrap(~ panel, ncol = 3, scales = "free_y") +
+  scale_fill_manual(values = pal) +
+  scale_y_continuous(expand = expansion(mult = c(0.05, 0.15))) +   # room for the stars
+  labs(x = NULL, y = NULL, fill = "Perturbation") +
+  theme_classic(base_size = 12) +
+  theme(strip.background = element_blank(),
+        strip.text = element_text(face = "bold"),
+        legend.position = "bottom",
+        axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0))
+p
+
+# ---- Save ----
+out_dir <- "data/results/Final_Figures/Supplementary_figures/revisions"
+ggsave(file.path(out_dir, "domain_shift.png"), p, width = 10, height = 7, dpi = 300)
+ggsave(file.path(out_dir, "domain_shift.pdf"), p, width = 10, height = 7)
+```
+
+## Correlation of nuclear compartments
+
+```{r}
+getwd()
+data <- fread("CCIDEconv/supplementary_analysis/results/nuclear_compartment_analysis/correlation_analysis_results.csv")
+plot_data <- data %>%
+  mutate(
+    # Separate the domain (SP/ScP) and the type of analysis (LOGO/Robustness)
+    domain = case_when(
+      analysis %in% c("spatial_logo", "spatial_robustness") ~ "SP",
+      analysis %in% c("single_logo", "single_robustness") ~ "ScP"
+    ),
+    analysis_type = case_when(
+      analysis %in% c("spatial_logo", "single_logo") ~ "LOGO",
+      analysis %in% c("spatial_robustness", "single_robustness") ~ "Robustness"
+    ),
+    performance_metric = recode(
+      performance_metric,
+      "Nuclear R²"    = "Nuclear R²",
+      "Nuclear NRMSE" = "Nuclear NRMSE",
+      "ΔR²"           = "Nuclear ΔR²",
+      "ΔNRMSE"        = "Nuclear ΔNRMSE"  
+    ),
+    predictor = factor(
+      predictor,
+      levels = rev(c(
+        "Nuclear detected genes",
+        "Nuclear zero-count fraction",
+        "N/C expression ratio",
+        "Nuclear–cytoplasmic dropout gap",
+        "Nuclear detection ratio",
+        "Total panel gene count"
+      ))
+    ),
+    # Combine domain and metric with a newline so labels stay compact
+    metric_analysis = paste(domain, performance_metric, sep = " "),
+    metric_analysis = factor(
+      metric_analysis,
+      levels = c(
+        "SP Nuclear R²",
+        "SP Nuclear NRMSE",
+        "SP Nuclear ΔR²",
+        "SP Nuclear ΔNRMSE",
+        "ScP Nuclear R²",
+        "ScP Nuclear NRMSE",
+        "ScP Nuclear ΔR²",
+        "ScP Nuclear ΔNRMSE"
+      )
+    ),
+    label = sprintf("%.2f", correlation)
+  ) %>%
+  drop_na(metric_analysis) %>% 
+  filter(performance_metric %in% c("Nuclear ΔR²","Nuclear ΔNRMSE"))
+
+# 2x2 Layout: rows = analysis_type (LOGO top, Robustness bottom), columns = method (Pearson left, Spearman right)
+ggplot(plot_data, aes(x = metric_analysis, y = predictor, fill = correlation)) +
+  geom_tile(color = "white", linewidth = 0.7) +
+  geom_text(aes(label = sprintf("%.2f", correlation)), size = 2.8) +
+  scale_fill_gradient2(
+    low = "#2166AC",
+    mid = "white",
+    high = "#B2182B",
+    midpoint = 0,
+    limits = c(-1, 1),
+    name = "Correlation"
+  ) +
+  facet_grid(analysis_type ~ method) +
+  labs(
+    x = NULL,
+    y = NULL  ) +
+  theme_minimal(base_size = 12) +
+  theme(
+    panel.grid = element_blank(),
+    axis.text.x = element_text(size = 9, angle = 45, hjust = 1, vjust = 1),
+    axis.text.y = element_text(size = 10),
+    plot.title = element_text(face = "bold"),
+    legend.position = "right",
+    plot.margin = margin(t = 10, r = 10, b = 40, l = 10, unit = "pt")
+  )
+ggsave("~/Library/CloudStorage/OneDrive-TheUniversityofSydney(Students)/University of Sydney/PhD projects/main/Cell Cell Communication/server/cell_cell_commuication/data/results/Final_Figures/Supplementary_figures/revisions/nuclear_compartment.png")
+
+ggsave("~/Library/CloudStorage/OneDrive-TheUniversityofSydney(Students)/University of Sydney/PhD projects/main/Cell Cell Communication/server/cell_cell_commuication/data/results/Final_Figures/Supplementary_figures/revisions/nuclear_compartment.pdf")
+```
+
+## sensitivity plot
+
+```{r}
+suppressPackageStartupMessages({
+  library(readr)
+  library(dplyr)
+  library(tidyr)
+  library(ggplot2)
+  library(rstatix)
+  library(ggpubr)
+})
+base_dir <- getwd()
+csv_path <- file.path(base_dir, "CCIDeconv", "supplementary_analysis", "results", "random_seed_sensitivity", "seed_sensitivity_per_dataset.csv")
+
+df <- read_csv(csv_path, show_col_types = FALSE) %>%
+  mutate(Seed = factor(paste0("Seed ", Seed), levels = c("Seed 42", "Seed 112", "Seed 123")))
+
+# Select key metrics
+metric_mapping <- c(
+  "AUC"          = "AUROC",
+  "macro_recall" = "Macro Recall",
+  "cyt_R2"       = "Cytoplasm R²",
+  "nuc_R2"       = "Nuclear R²"
+)
+
+plot_df <- df %>%
+  select(Seed, Dataset, all_of(names(metric_mapping))) %>%
+  pivot_longer(
+    cols = all_of(names(metric_mapping)),
+    names_to = "metric_code",
+    values_to = "Value"
+  ) %>%
+  mutate(
+    Metric = factor(
+      metric_mapping[metric_code],
+      levels = unname(metric_mapping)
+    )  )
+
+# 2. Compute paired Wilcoxon tests & calculate bracket (x, y) coordinates
+stat_test <- plot_df %>%
+  group_by(Metric) %>%
+  pairwise_wilcox_test(Value ~ Seed, paired = TRUE, p.adjust.method = "BH") %>%
+  add_significance("p.adj") %>%
+  add_xy_position(x = "Seed", step.increase = 0.10)
+
+seed_palette <- c("Seed 42" = "#2B5C8F", "Seed 112" = "#D95F02", "Seed 123" = "#7570B3")
+
+# 3. Plot Boxplots with 'ns' displayed on brackets
+p <- ggplot(plot_df, aes(x = Seed, y = Value, fill = Seed)) +
+  geom_boxplot(width = 0.55, outlier.shape = NA, alpha = 0.75, color = "black", linewidth = 0.5) +
+  # Paired gray lines tracking individual datasets across the 3 seeds
+  geom_line(aes(group = Dataset), color = "gray60", alpha = 0.5, linewidth = 0.4) +
+  geom_point(aes(color = Seed), size = 2.2, shape = 21, stroke = 0.4, fill = "white") +
+  # Explicitly show 'ns' on brackets (hide.ns = FALSE)
+  stat_pvalue_manual(
+    stat_test,
+    label = "p.adj.signif",
+    tip.length = 0.015,
+    bracket.size = 0.4,
+    size = 3.6,
+    hide.ns = FALSE
+  ) +
+  facet_wrap(~Metric, scales = "free_y", ncol = 4) +
+  scale_fill_manual(values = seed_palette) +
+  scale_color_manual(values = seed_palette) +
+  scale_y_continuous(expand = expansion(mult = c(0.05, 0.18))) +
+  theme_classic(base_size = 12) +
+  theme(
+    strip.background = element_rect(fill = "#F2F4F7", color = NA),
+    strip.text = element_text(face = "bold", size = 11),
+    axis.title.x = element_blank(),
+    axis.title.y = element_text(face = "bold", size = 11),
+    axis.text.x = element_text(face = "bold", size = 10, color = "black"),
+    legend.position = "none",
+    panel.grid.major.y = element_line(color = "#E9ECEF", linetype = "dashed", linewidth = 0.4)
+  ) +
+  labs(
+    y = "Value",
+  )
+
+p
+
+# 4. Save Vector PDF and High-Res PNG
+ggsave('data/results/Final_Figures/Supplementary_figures/revisions/sensitivity.pdf',plot = p, width = 10, height = 4.5, device = "pdf")
+ggsave("data/results/Final_Figures/Supplementary_figures/revisions/sensitivity", plot = p, width = 7.5, height = 6.0, dpi = 300)
 
 
 ```
