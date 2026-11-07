@@ -159,7 +159,6 @@ for (i in seq_along(results_list)) {
 The data used for training contains the cell communication scores
 
 ```{r}
-
 train_data_list = list()
 for (i in 1:length(results_list)){
   comm_scores = files[i]
