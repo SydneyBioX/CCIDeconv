@@ -141,8 +141,9 @@ def main(args):
             xgb_bo.maximize(init_points=3, n_iter=30)
             reg_nuc_params = cast_params(xgb_bo.max['params'], int_params=xgb_int_params) 
         
-            reg_cyt_wrapper = train_regressor(X_train[mask_train,:], y_cyt.iloc[train_idx,:].to_numpy()[mask_train], reg_cyt_params, X_val = X_test[mask_test,:], y_val = y_cyt.iloc[test_idx,:].to_numpy()[mask_test])
-            reg_nuc_wrapper = train_regressor(X_train[mask_train,:], y_nuc.iloc[train_idx,:].to_numpy()[mask_train], reg_nuc_params, X_val = X_test[mask_test,:], y_val = y_nuc.iloc[test_idx,:].to_numpy()[mask_test])
+            # Train regressor cleanly on X_train without test-set early stopping
+            reg_cyt_wrapper = train_regressor(X_train[mask_train,:], y_cyt.iloc[train_idx,:].to_numpy()[mask_train], reg_cyt_params, X_val=None, y_val=None)
+            reg_nuc_wrapper = train_regressor(X_train[mask_train,:], y_nuc.iloc[train_idx,:].to_numpy()[mask_train], reg_nuc_params, X_val=None, y_val=None)
         # Inference on test set
             results_regression[group_name] = HierarchicalRegressor(reg_cyt_wrapper, reg_nuc_wrapper).evaluate(X_test[mask_test,:], y_cyt.iloc[test_idx,:].to_numpy()[mask_test].flatten(), y_nuc.iloc[test_idx,:].to_numpy()[mask_test].flatten(), test_ids)
    

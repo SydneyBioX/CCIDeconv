@@ -6,3 +6,8 @@ data
 *.joblib
 __pycache__
 .DS_Store
+.cache
+supplementary_analysis/results
+Rplots.pdf
+figures
+.DS_Store

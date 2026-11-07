@@ -384,61 +384,61 @@ def extract_metrics(results_classifier, results_regression, model_name):
     Returns:
         pd.DataFrame: Summary dataframe including AUC, macro metrics, R², RMSE, NRMSE, and a composite metric.
     """
-       auc = [results_classifier[group]['classification_metrics']['roc_auc']
-              for group in results_classifier.keys()]
-       reports = [results_classifier[group]['classification_metrics']['class_report']
-              for group in results_classifier.keys()]
-       macro_recalls = []
-       macro_precisions = []
-       macro_f1s = []
-       for report in reports:
-              for line in report.splitlines():
-                     if line.strip().startswith("macro avg"):
-                     # Split the line into parts and take the second number (recall)
-                            macro_precision = float(line.split()[2])
-                            macro_recall = float(line.split()[3])
-                            macro_f1 = float(line.split()[4])
-                            macro_precisions.append(macro_precision)
-                            macro_recalls.append(macro_recall)
-                            macro_f1s.append(macro_f1)
-       cyt_R2 = [results_regression[group]['cyt'][0]['R²']
-              for group in results_regression.keys()]
-       nuc_R2 = [results_regression[group]['nuc'][0]['R²']
-                     for group in results_regression.keys()]
-       cyt_NRMSE = [results_regression[group]['cyt'][0]['NRMSE']
-                     for group in results_regression.keys()]
-       nuc_NRMSE = [results_regression[group]['nuc'][0]['NRMSE']
-                     for group in results_regression.keys()]
-       cyt_RMSE = [results_regression[group]['cyt'][0]['RMSE']
-                     for group in results_regression.keys()]
-       nuc_RMSE = [results_regression[group]['nuc'][0]['RMSE']
-                     for group in results_regression.keys()]
-       
-       composite_metric = [
-              gmean([
-                     a, 
-                     r, 
-                     np.mean([c_r2, n_r2]),               # average R² for this row
-                     np.mean([1 - c_nrmse, 1 - n_nrmse])  # average "1 - NRMSE" for this row
-              ])
-              for a, r, c_r2, n_r2, c_nrmse, n_nrmse in zip(
-                     auc, macro_recalls, cyt_R2, nuc_R2, cyt_NRMSE, nuc_NRMSE
-              )
-              ]
-       
-       metrics = pd.DataFrame({
-       "Dataset": results_classifier.keys(),
-       "model" : model_name,
-       "AUC": auc,
-       "macro_precision": macro_precisions,
-       "macro_recall": macro_recalls,
-       "macro_f1": macro_f1s,
-       "cyt_R2": cyt_R2,
-       "nuc_R2": nuc_R2,
-       "cyt_NRMSE": cyt_NRMSE,
-       "nuc_NRMSE": nuc_NRMSE,
-       "cyt_RMSE": cyt_RMSE,
-       'nuc_RMSE': nuc_RMSE,
-       "composite_metric": composite_metric
-       })
-       return metrics
+    auc = [results_classifier[group]['classification_metrics']['roc_auc']
+           for group in results_classifier.keys()]
+    reports = [results_classifier[group]['classification_metrics']['class_report']
+           for group in results_classifier.keys()]
+    macro_recalls = []
+    macro_precisions = []
+    macro_f1s = []
+    for report in reports:
+        for line in report.splitlines():
+            if line.strip().startswith("macro avg"):
+                # Split the line into parts and take the second number (recall)
+                macro_precision = float(line.split()[2])
+                macro_recall = float(line.split()[3])
+                macro_f1 = float(line.split()[4])
+                macro_precisions.append(macro_precision)
+                macro_recalls.append(macro_recall)
+                macro_f1s.append(macro_f1)
+    cyt_R2 = [results_regression[group]['cyt'][0]['R²']
+           for group in results_regression.keys()]
+    nuc_R2 = [results_regression[group]['nuc'][0]['R²']
+                  for group in results_regression.keys()]
+    cyt_NRMSE = [results_regression[group]['cyt'][0]['NRMSE']
+                  for group in results_regression.keys()]
+    nuc_NRMSE = [results_regression[group]['nuc'][0]['NRMSE']
+                  for group in results_regression.keys()]
+    cyt_RMSE = [results_regression[group]['cyt'][0]['RMSE']
+                  for group in results_regression.keys()]
+    nuc_RMSE = [results_regression[group]['nuc'][0]['RMSE']
+                  for group in results_regression.keys()]
+    
+    composite_metric = [
+        gmean([
+            a, 
+            r, 
+            np.mean([c_r2, n_r2]),               # average R² for this row
+            np.mean([1 - c_nrmse, 1 - n_nrmse])  # average "1 - NRMSE" for this row
+        ])
+        for a, r, c_r2, n_r2, c_nrmse, n_nrmse in zip(
+            auc, macro_recalls, cyt_R2, nuc_R2, cyt_NRMSE, nuc_NRMSE
+        )
+    ]
+    
+    metrics = pd.DataFrame({
+        "Dataset": results_classifier.keys(),
+        "model" : model_name,
+        "AUC": auc,
+        "macro_precision": macro_precisions,
+        "macro_recall": macro_recalls,
+        "macro_f1": macro_f1s,
+        "cyt_R2": cyt_R2,
+        "nuc_R2": nuc_R2,
+        "cyt_NRMSE": cyt_NRMSE,
+        "nuc_NRMSE": nuc_NRMSE,
+        "cyt_RMSE": cyt_RMSE,
+        'nuc_RMSE': nuc_RMSE,
+        "composite_metric": composite_metric
+    })
+    return metrics

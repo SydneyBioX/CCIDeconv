@@ -7,7 +7,7 @@ editor: visual
 
 ## Processing Datasets
 
-This script is used for processing the nine publicly available 10X Xenium subcellular spatial transcriptomics datasets over a range of different tissue types from human samples
+This script is used for processing the nine publicly available 10X Xenium subcellular spatial transcriptomics datasets over a range of different tissue types from human samples. We downloaded the datasets from the
 
 A. Brain (AD),
 
@@ -40,6 +40,9 @@ library(scran)
 library(scuttle)
 library(SingleCellExperiment)
 library(tidyverse)
+library(MoleculeExperiment)
+library(scuttle)
+library(SingleR)
 ```
 
 #### Loading the input paths and gene panels
@@ -58,17 +61,17 @@ print("Loaded input file paths and gene panels")
 
 #### Loading and processing reference datasets
 
--   The reference datasets were downloaded and processed for annotation using singleR package for label transfer
+- The reference datasets were downloaded and processed for annotation using singleR package for label transfer
 
--   The brain_ad reference is downloaded from CellXgene website. https://cellxgene.cziscience.com/collections/7c4552fd-8a6d-4da3-9854-2dfa8baca8bf
+- The brain_ad reference is downloaded from CellXgene website. https://cellxgene.cziscience.com/collections/7c4552fd-8a6d-4da3-9854-2dfa8baca8bf
 
--   The brain_gl reference is downloaded from CellXgene website. https://cellxgene.cziscience.com/collections/999f2a15-3d7e-440b-96ae-2c806799c08c
+- The brain_gl reference is downloaded from CellXgene website. https://cellxgene.cziscience.com/collections/999f2a15-3d7e-440b-96ae-2c806799c08c
 
--   The cancer reference is downloaded from CellXgene website. https://cellxgene.cziscience.com/collections/3f7c572c-cd73-4b51-a313-207c7f20f188
+- The cancer reference is downloaded from CellXgene website. https://cellxgene.cziscience.com/collections/3f7c572c-cd73-4b51-a313-207c7f20f188
 
--   The lymph node reference is downloaded from the scRNAseq package using the version 2023-12-21 and path lymph_node.
+- The lymph node reference is downloaded from the scRNAseq package using the version 2023-12-21 and path lymph_node.
 
--   The pancreas reference is downloaded from Suerat data.pancreasref.SeuratData Azimuth reference was used.
+- The pancreas reference is downloaded from Suerat data.pancreasref.SeuratData Azimuth reference was used.
 
 ```{r}
 #| message: false
@@ -92,6 +95,7 @@ brain_gl_ref <- mapping_function(ref_dataset = brain_gl_ref)
 
 # breast cancer
 cancer_ref = readRDS("data/references/cancer_reference.rds")
+# cancer_reference <- readRDS("~/Library/CloudStorage/OneDrive-TheUniversityofSydney(Students)/University of Sydney/PhD projects/main/Cell Cell Communication/server/cell_cell_commuication/data/processed/datasets/reference.rds")
 breat_cancer_ref = cancer_ref[,cancer_ref$disease == "breast cancer"]
 
 # lung and lung_high_res
@@ -301,4 +305,240 @@ for (i in seq_along(results_list)) {
   # Save the list element
   saveRDS(results_list[[i]], file = file_path)
 }
+```
+
+## Processing the CosMx Dataset
+
+```{r}
+library(readr)
+library(dplyr)
+library(tidyverse)
+library(Matrix)
+library(SpatialExperiment)
+library(SummarizedExperiment)
+
+dataDir <- path.expand(
+  "data/cosmx/Lung13/Lung13-Flat_files_and_images"
+)
+
+# List CSV files
+files <- list.files(dataDir, pattern = "\\.csv$", recursive = TRUE, full.names = TRUE)
+
+# First CSV: whole-cell gene counts
+total <- read_csv(files[1], show_col_types = FALSE)
+
+# Fourth CSV: transcript-level data
+tx <- read_csv(files[4], show_col_types = FALSE)
+
+# Create a unique cell ID shared across all three objects
+total <- total %>%
+  mutate(cell_key = paste(fov, cell_ID, sep = "_"))
+
+tx <- tx %>%
+  mutate(cell_key = paste(fov, cell_ID, sep = "_"))
+
+# Whole-cell count matrix: genes x cells
+genes <- setdiff(names(total), c("fov", "cell_ID", "cell_key"))
+
+whole_counts <- t(as.matrix(total[, genes]))
+colnames(whole_counts) <- total$cell_key
+
+# Create compartment-specific count matrices, retaining every cell
+make_compartment_counts <- function(tx, compartment) {
+  d <- tx %>%
+    filter(
+      if (compartment == "Nuclear") {
+        CellComp == "Nuclear"
+      } else {
+        CellComp != "Nuclear"
+      },
+      target %in% genes,
+      cell_key %in% total$cell_key
+    )
+  
+  # Map transcripts to gene and cell indices
+  i <- match(d$target, genes)
+  j <- match(d$cell_key, total$cell_key)
+  
+  mat <- sparseMatrix(
+    i = i,
+    j = j,
+    x = rep(1L, nrow(d)),
+    dims = c(length(genes), nrow(total)),
+    dimnames = list(genes, total$cell_key)
+  )
+  
+  mat
+}
+
+cyt_counts <- make_compartment_counts(tx, "Cytoplasm")
+nuc_counts <- make_compartment_counts(tx, "Nuclear")
+
+# Shared cell metadata
+cell_data <- data.frame(
+  fov = total$fov,
+  cell_ID = total$cell_ID,
+  row.names = total$cell_key
+)
+# Create three SPE objects with identical cell ordering
+spe_whole <- SpatialExperiment(
+  assays = list(counts = whole_counts),
+  colData = cell_data
+)
+
+spe_cyt <- SpatialExperiment(
+  assays = list(counts = cyt_counts),
+  colData = cell_data
+)
+
+spe_nuc <- SpatialExperiment(
+  assays = list(counts = nuc_counts),
+  colData = cell_data
+)
+
+# Verify alignment
+stopifnot(
+  identical(colnames(spe_whole), colnames(spe_cyt)),
+  identical(colnames(spe_whole), colnames(spe_nuc))
+)
+
+spe_list = list(spe_whole, spe_cyt, spe_nuc)
+
+
+spe_whole <- spe_whole[!grepl("^NegPrb", rownames(spe_whole)), ]
+spe_cyt   <- spe_cyt[!grepl("^NegPrb", rownames(spe_cyt)), ]
+spe_nuc   <- spe_nuc[!grepl("^NegPrb", rownames(spe_nuc)), ]
+
+spe_list = list(spe_whole, spe_cyt, spe_nuc)
+
+thresh_sum = 20
+thresh_detected = 10
+spe_list = lapply(spe_list, function(spe){
+  is_neg <- grepl("^NegPrb", rownames(spe))
+  spe = addPerCellQCMetrics(spe, subsets = list("neg" = is_neg))
+  spe$keep = spe$sum > thresh_sum & spe$detected > thresh_detected
+  spe = spe[, spe$keep]
+  spe = spe[!(rownames(spe) %in% is_neg), ]
+  return(spe)
+})
+
+# Normalization
+spe_list = lapply(spe_list, function(spe){
+  spe = logNormCounts(spe)
+  return(spe)
+})
+
+ref = lung_ref
+names(spe_list) = c("cell", "cyt", "nuc")
+spe = spe_list$cell
+ref = logNormCounts(ref)
+
+hvg <- modelGeneVar(ref)
+top_genes <- getTopHVGs(hvg, n = 2000)
+ref_sub <- ref[top_genes, ]
+prediction = SingleR(test = spe, ref = ref_sub, labels = ref$cell_type)
+spe$celltype = prediction$labels
+# annotate the same cell_type in cytoplasm and nucleus
+map = colData(spe)[,c("celltype", "cell_ID")]
+spe_cyt = spe_list$cyt
+spe_nuc = spe_list$nuc
+spe_cell = spe
+spe_cyt$celltype = map$celltype[match(spe_cyt$cell_ID, map$cell_ID)]
+spe_nuc$celltype = map$celltype[match(spe_nuc$cell_ID, map$cell_ID)]
+spe_list = list(spe_cell, spe_cyt, spe_nuc)
+names(spe_list) = c("cell", "cyt", "nuc")
+saveRDS(spe_list, "../data/processed/cosmx/cosmx_lung.rds")
+
+# add the coords
+cell_stats <- readr::read_csv(files[3], show_col_types = FALSE)
+
+# Unique key for matching cells across FOVs
+cell_stats$cell_key <- paste(cell_stats$fov, cell_stats$cell_ID, sep = "_")
+
+remove_keys <- unmatched$cell_key
+
+spe_list <- lapply(spe_list, function(spe) {
+  keys <- paste(colData(spe)$fov, colData(spe)$cell_ID, sep = "_")
+  spe[, !keys %in% remove_keys]
+})
+
+# Assign coordinates to the remaining cells
+spe_list <- lapply(spe_list, function(spe) {
+  keys <- paste(colData(spe)$fov, colData(spe)$cell_ID, sep = "_")
+  idx <- match(keys, cell_stats$cell_key)
+
+  if (anyNA(idx)) {
+    stop(sum(is.na(idx)), " cells still lack CellStats matches.")
+  }
+
+  coords <- as.matrix(
+    cell_stats[idx, c("CenterX_global_px", "CenterY_global_px")]
+  )
+  rownames(coords) <- colnames(spe)
+  spatialCoords(spe) <- coords
+  spe
+})
+
+names(spe_list) <- c("cell", "cyt", "nuc")
+
+# Verify
+lapply(spe_list, function(spe) dim(SpatialExperiment::spatialCoords(spe)))
+
+# Save the updated objects
+saveRDS(spe_list, "../data/processed/cosmx/cosmx_lung_processed.rds")
+
+# perform the cellchat on each and extract the test dataset
+# future::plan("multisession", workers = 4)
+# library(CellChat)
+# cellchat = lapply(spe_list, run_cellchat) #use HPC
+
+# extract the test dataset
+cellchat = readRDS("data/cosmx/cosmx_cellchat.rds")
+
+
+dataframe = Map(function(obj, region){
+    net_arr <- obj@net[["Prob_P2_P3_P4"]]
+    df <- as.data.frame(as.table(net_arr))
+    names(df) <- c("source", "target", "interaction_name", paste0(region, "_score"))
+    pval_df <- as.data.frame(as.table(obj@net[["PvalP2_P3_P4"]]))
+    names(pval_df) <- c("source", "target", "interaction_name", paste0(region, "_pval"))
+    df <- merge(df, pval_df, by = intersect(colnames(df), colnames(pval_df)))
+    LRsig <- obj@LR$LRsig
+    LRsig_sub <- LRsig[, c(
+      "pathway_name", "annotation", "is_neurotransmitter","interaction_name", "ligand", "ligand.location","ligand.family", "ligand.keyword", "ligand.secreted_type","ligand.transmembrane","receptor", "receptor.family", "receptor.keyword", "receptor.surfaceome_main", "receptor.surfaceome_sub", "receptor.adhesome", "receptor.secreted_type", "receptor.location","receptor.transmembrane"
+    )]
+    df <- merge(df, LRsig_sub, by = "interaction_name")
+    d.spatial <- obj@images$distance * 0.01
+    diag(d.spatial) <- NaN
+    P.spatial <- 1/d.spatial
+    P.spatial[is.na(d.spatial)] <- 0
+    diag(P.spatial) <- max(P.spatial, na.rm = TRUE) 
+    df[[paste0(region,"_pspatial")]] <- mapply(function(l, r) {
+      if (!is.na(l) && !is.na(r) && l %in% rownames(P.spatial) && r %in% colnames(P.spatial)) {
+        P.spatial[l, r]
+      } else {
+        NA
+      }
+    }, df$source, df$target)
+    df[paste0(region, "_P1")] = df[paste0(region, "_score")]/ df[[paste0(region,"_pspatial")]]
+    df[paste0(region, "_P1")][is.na( df[paste0(region, "_P1")])] <- 0
+    df
+  }, cellchat, names(cellchat))
+df = Reduce(function(x,y) merge(x,y, by = intersect(colnames(x), colnames(y)), all = FALSE), dataframe)
+
+hpa_data = fread("~/Library/CloudStorage/OneDrive-TheUniversityofSydney(Students)/University of Sydney/PhD projects/main/Cell Cell Communication/server/cell_cell_commuication/data/processed/archive/subcellular_location.tsv")
+df <- merge(df, hpa_data[, .(`Gene name`, `Main location`)], 
+            by.x = "ligand", by.y = "Gene name", 
+            all.x = TRUE)
+setnames(df, old = "Main location", new = "ligand.location_hpa")
+df <- merge(df, hpa_data[, .(`Gene name`, `Main location`)], 
+            by.x = "receptor", by.y = "Gene name", 
+            all.x = TRUE)
+setnames(df, old = "Main location", new = "receptor.location_hpa")
+df$cell_padj = p.adjust(df$cell_pval, method = "BH")
+df$cyt_padj = p.adjust(df$cyt_pval, method = "BH")
+df$nuc_padj = p.adjust(df$nuc_pval, method = "BH")
+df = df[df$cell_padj<=0.05 | df$cyt_padj <=0.05 | df$nuc_padj <=0.05,]
+df$lr_pair = paste0(df$ligand, '_', df$receptor)
+fwrite(df, "data/cosmx/cosmx_test.csv")
 ```
