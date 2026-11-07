@@ -9,5 +9,4 @@ __pycache__
 .cache
 supplementary_analysis/results
 Rplots.pdf
-figures
 .DS_Store
